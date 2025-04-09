@@ -20,7 +20,7 @@ pub fn cmdGraph(
     });
     defer root_prog_node.end();
 
-    var map = try audit.fetchPackageDependencies(
+    const root, var map = try audit.fetchPackageDependencies(
         allocator,
         arena,
         root_prog_node,
@@ -30,6 +30,8 @@ pub fn cmdGraph(
         while (iter.next()) |dep| dep.value_ptr.deinit(allocator);
         map.deinit();
     }
+
+    try map.put(0, root);
 
     const format: Format = if (args.mermaid != 0) blk: {
         break :blk .mermaid;

@@ -33,11 +33,13 @@ pub fn cmdAudit(
     });
     defer root_prog_node.end();
 
-    var map = try fetchPackageDependencies(
+    var root, var map = try fetchPackageDependencies(
         allocator,
         arena,
         root_prog_node,
     );
+    defer root.deinit(allocator);
+
     var deps_iter2 = map.iterator();
     while (deps_iter2.next()) |dep| {
         try dep.value_ptr.print(stdout.writer());
@@ -48,7 +50,7 @@ pub fn fetchPackageDependencies(
     allocator: Allocator,
     arena: Allocator,
     node: std.Progress.Node,
-) !DepMap {
+) !struct { PackageInfo, DepMap } {
     const color: Color = .auto;
 
     var fetch_node = node.start("Fetch Dependencies", 0);
@@ -87,16 +89,28 @@ pub fn fetchPackageDependencies(
     while (deps_iter.next()) |dep| {
         try dependencies.append(dep.value_ptr.location.url);
     }
+
+    // TODO: provide all information
+    var root_package = PackageInfo{
+        .name = try allocator.dupe(u8, manifest.name),
+        .hash = try allocator.dupe(u8, ""),
+        .url = try allocator.dupe(u8, ""),
+        .fingerprint = 0,
+        .version = manifest.version,
+        .children = std.ArrayList(u64).init(allocator),
+    };
+    errdefer root_package.deinit(allocator);
+
     try fetchDependencies(
         allocator,
         arena,
         dependencies.items,
         fetch_node,
         &dep_map,
-        null,
+        &root_package,
     );
 
-    return dep_map;
+    return .{ root_package, dep_map };
 }
 
 pub fn fetchDependencies(
