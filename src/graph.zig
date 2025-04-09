@@ -15,7 +15,16 @@ pub fn cmdGraph(
     arena: Allocator,
     args: anytype,
 ) !void {
-    var map = try audit.fetchPackageDependencies(allocator, arena);
+    var root_prog_node = std.Progress.start(.{
+        .root_name = "generate graph",
+    });
+    defer root_prog_node.end();
+
+    var map = try audit.fetchPackageDependencies(
+        allocator,
+        arena,
+        root_prog_node,
+    );
     defer {
         var iter = map.iterator();
         while (iter.next()) |dep| dep.value_ptr.deinit(allocator);

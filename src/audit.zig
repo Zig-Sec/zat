@@ -28,7 +28,16 @@ pub fn cmdAudit(
 ) !void {
     _ = args;
 
-    var map = try fetchPackageDependencies(allocator, arena);
+    var root_prog_node = std.Progress.start(.{
+        .root_name = "audit package",
+    });
+    defer root_prog_node.end();
+
+    var map = try fetchPackageDependencies(
+        allocator,
+        arena,
+        root_prog_node,
+    );
     var deps_iter2 = map.iterator();
     while (deps_iter2.next()) |dep| {
         try dep.value_ptr.print(stdout.writer());
@@ -38,8 +47,12 @@ pub fn cmdAudit(
 pub fn fetchPackageDependencies(
     allocator: Allocator,
     arena: Allocator,
+    node: std.Progress.Node,
 ) !DepMap {
     const color: Color = .auto;
+
+    var fetch_node = node.start("Fetch Dependencies", 0);
+    defer fetch_node.end();
 
     const cwd_path = try std.process.getCwdAlloc(allocator);
     defer allocator.free(cwd_path);
@@ -60,11 +73,6 @@ pub fn fetchPackageDependencies(
         ast.deinit(allocator);
     }
 
-    var root_prog_node = std.Progress.start(.{
-        .root_name = "Fetch Dependencies",
-    });
-    defer root_prog_node.end();
-
     var dep_map = DepMap.init(arena);
     errdefer {
         var iter = dep_map.iterator();
@@ -83,7 +91,7 @@ pub fn fetchPackageDependencies(
         allocator,
         arena,
         dependencies.items,
-        root_prog_node,
+        fetch_node,
         &dep_map,
         null,
     );
