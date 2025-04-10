@@ -151,3 +151,34 @@ pub fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemor
 
     return result.toOwnedSlice(arena);
 }
+
+pub fn openFolder(path: []const u8) !std.fs.Dir {
+    return if (path.len >= 2 and path[0] == '~' and path[1] == '/') blk: {
+        const home = std.c.getenv("HOME");
+        if (home == null) return error.NoHome;
+        var home_dir = try std.fs.openDirAbsolute(home.?[0..std.zig.c_builtins.__builtin_strlen(home.?)], .{});
+        defer home_dir.close();
+        break :blk try home_dir.openDir(path[2..], .{});
+    } else if (path.len >= 1 and path[0] == '/') blk: {
+        break :blk try std.fs.openDirAbsolute(path[0..], .{});
+    } else blk: {
+        break :blk try std.fs.cwd().openDir(path[0..], .{});
+    };
+}
+
+pub fn createFile(path: []const u8, options: std.fs.File.CreateFlags) !std.fs.File {
+    return if (path[0] == '~' and path[1] == '/') blk: {
+        const home = std.c.getenv("HOME");
+        if (home == null) return error.NoHome;
+        var home_dir = try std.fs.openDirAbsolute(home.?[0..std.zig.c_builtins.__builtin_strlen(home.?)], .{});
+        defer home_dir.close();
+        const file = try home_dir.createFile(path[2..], options);
+        break :blk file;
+    } else if (path[0] == '/') blk: {
+        const file = try std.fs.createFileAbsolute(path[0..], options);
+        break :blk file;
+    } else blk: {
+        const file = try std.fs.cwd().createFile(path[0..], options);
+        break :blk file;
+    };
+}

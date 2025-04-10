@@ -25,6 +25,7 @@ pub fn main() !void {
         \\--patch                  Patch release
         \\-y                       Accept all changes
         \\--mermaid                Use the mermaid format
+        \\--path <str>             Define a path
         \\
     );
 
@@ -48,43 +49,6 @@ pub fn main() !void {
         try std.fmt.format(stdout.writer(), help_text, .{});
         return;
     }
-}
-
-pub fn openFolder(path: []const u8) !std.fs.Dir {
-    return if (path.len >= 2 and path[0] == '~' and path[1] == '/') blk: {
-        const home = std.c.getenv("HOME");
-        if (home == null) return error.NoHome;
-        var home_dir = try std.fs.openDirAbsolute(home.?[0..std.zig.c_builtins.__builtin_strlen(home.?)], .{});
-        defer home_dir.close();
-        break :blk try home_dir.openDir(path[2..], .{});
-    } else if (path.len >= 1 and path[0] == '/') blk: {
-        break :blk try std.fs.openDirAbsolute(path[0..], .{});
-    } else blk: {
-        break :blk try std.fs.cwd().openDir(path[0..], .{});
-    };
-}
-
-pub fn createFile(path: []const u8) !std.fs.File {
-    return if (path[0] == '~' and path[1] == '/') blk: {
-        const home = std.c.getenv("HOME");
-        if (home == null) return error.NoHome;
-        var home_dir = try std.fs.openDirAbsolute(home.?[0..std.zig.c_builtins.__builtin_strlen(home.?)], .{});
-        defer home_dir.close();
-        const file = try home_dir.createFile(path[2..], .{
-            .exclusive = true,
-        });
-        break :blk file;
-    } else if (path[0] == '/') blk: {
-        const file = try std.fs.createFileAbsolute(path[0..], .{
-            .exclusive = true,
-        });
-        break :blk file;
-    } else blk: {
-        const file = try std.fs.cwd().createFile(path[0..], .{
-            .exclusive = true,
-        });
-        break :blk file;
-    };
 }
 
 const help_text =
@@ -112,6 +76,7 @@ const help_text =
     \\ --patch                                     Create a patch release
     \\
     \\Graph Options
-    \\ --mermaid                                   Create a mermaid graph
+    \\ --mermaid                                   Create a mermaid graph (supported by Github REDMEs)
+    \\ --path <str>                                The file to write the graph to
     \\
 ;

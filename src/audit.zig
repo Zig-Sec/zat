@@ -124,13 +124,17 @@ pub fn fetchDependencies(
     for (dep_paths) |dep| {
         //std.debug.print("{s}\n", .{dep});
 
-        const dep_, const children = try fetchDependency(
+        const dep_, const children = fetchDependency(
             allocator,
             arena,
             dep,
             node,
             parent,
-        );
+        ) catch {
+            std.log.warn("{s} is missing a manifest", .{dep});
+            continue;
+        };
+
         defer {
             for (children) |child| allocator.free(child);
             allocator.free(children);

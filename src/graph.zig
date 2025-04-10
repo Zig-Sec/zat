@@ -6,6 +6,8 @@ const DepMap = PackageInfo.PackageInfoMap;
 
 const audit = @import("audit.zig");
 
+const misc = @import("misc.zig");
+
 const Format = enum {
     mermaid,
 };
@@ -15,10 +17,20 @@ pub fn cmdGraph(
     arena: Allocator,
     args: anytype,
 ) !void {
+    var f: ?std.fs.File = null;
+    defer if (f) |f_| f_.close();
+
     var root_prog_node = std.Progress.start(.{
         .root_name = "generate graph",
     });
     defer root_prog_node.end();
+
+    var writer = if (args.path) |path| blk: {
+        f = try misc.createFile(path, .{});
+        break :blk f.?.writer();
+    } else blk: {
+        break :blk std.io.getStdOut().writer();
+    };
 
     const root, var map = try audit.fetchPackageDependencies(
         allocator,
@@ -38,8 +50,6 @@ pub fn cmdGraph(
     } else blk: {
         break :blk .mermaid;
     };
-
-    var writer = std.io.getStdOut().writer();
 
     switch (format) {
         .mermaid => {
