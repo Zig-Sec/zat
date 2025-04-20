@@ -27,6 +27,12 @@ pub fn build(b: *std.Build) void {
     });
     const clap_module = clap_dep.module("clap");
 
+    const advisory_dep = b.dependency("advisory", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const advisory_module = advisory_dep.module("advisory");
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -52,6 +58,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe_mod.addImport("clap", clap_module);
+    exe_mod.addImport("advisory", advisory_module);
 
     // Modules can depend on one another using the `std.Build.Module.addImport` function.
     // This is what allows Zig source code to use `@import("foo")` where 'foo' is not a
