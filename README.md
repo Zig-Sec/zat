@@ -8,6 +8,30 @@ After compiling run _zat -h_.
 
 ## Features
 
+### Auditing Zig Packages
+
+Use ZAT to to audit a Zig package.
+
+```bash
+$ zat --audit
+Scanning build.zig.zon for vulnerabilities (8 package dependencies)
+
+Package:      zbor
+Version:      0.17.0
+Title:        This is the first advisory published to zig-sec/advisory-db.
+Date:         2025-03-16
+ID:           ZIGSEC-2025-0001
+URL:          https://zigsec.org/advisories/ZIGSEC-2025-0001/
+Solution:     Don't worry! But you should upgrade anyway as a new zbor release is available.
+
+error: 1 vulnerability found!
+```
+
+The example above is an audit of the [PassKeeZ](https://github.com/Zig-Sec/PassKeeZ) application.
+
+The `--audit` command tries to find published vulnerabilities for every (transitive) dependency of a package.
+Currently, ZAT only sources the [Zig-Sec Advisory Database](https://zigsec.org/). 
+
 ### Dependency Graphs
 
 Use ZAT to create dependency graphs.
