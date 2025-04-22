@@ -68,6 +68,7 @@ pub fn cmdAudit(
                     \\Title:        {s}
                     \\Date:         {s}
                     \\ID:           {s}
+                    \\URL:          https://zigsec.org/advisories/{s}/
                     \\Solution:     {s}
                     \\
                 ,
@@ -78,6 +79,7 @@ pub fn cmdAudit(
                         dep.value_ptr.version.patch,
                         adv.description,
                         adv.date,
+                        adv.id,
                         adv.id,
                         if (adv.recommended) |rec| rec else "None",
                     },

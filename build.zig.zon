@@ -15,6 +15,11 @@
         .advisory = .{
             .path = "../advisory-db",
         },
+        .advisory_db = .{
+            .url = "git+https://github.com/Zig-Sec/advisory-db#049b2784d73b0ecaff5dec5ae76ad46947a60902",
+            .hash = "advisory_db-0.0.0-mjR6pWh1AAAGl0-IIkNj_TSMopzbI8T3wfDBU2Y8zeF6",
+            //.path = "../advisory-db",
+        },
     },
 
     .paths = .{
