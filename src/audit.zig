@@ -19,6 +19,8 @@ const builtin = @import("builtin");
 
 const Package = @import("Package.zig");
 
+const ZigsecAdvisoryApi = @import("ZigsecAdvisoryApi.zig");
+
 const misc = @import("misc.zig");
 
 const stdout = std.io.getStdOut();
@@ -33,10 +35,21 @@ pub fn cmdAudit(
 
     var vulnerability_counter: usize = 0;
 
+    // This client is used to access the advisory db on Github.
+    var http_client: std.http.Client = .{ .allocator = allocator };
+    defer http_client.deinit();
+    try http_client.initDefaultProxies(allocator);
+
     var root_prog_node = std.Progress.start(.{
         .root_name = "Scanning build.zig.zon",
     });
 
+    // Here we fetch the dependencies specified in build.zig.zon. This is the
+    // same code as used by the standard libraries `zig build`.
+    //
+    // TODO: They should make this API public so I/we don't have to copy the code
+    // but maybe it's better to simplify the process as we only need the build.zig.zon.
+    // Maybe we need more later on...
     var root, var map = try fetchPackageDependencies(
         allocator,
         arena,
@@ -48,10 +61,16 @@ pub fn cmdAudit(
 
     try stdout.writer().print("Scanning build.zig.zon for vulnerabilities ({d} package dependencies)\n", .{map.count()});
 
+    // We iterate over every (transitive) dependency and try to fetch advisories.
     var deps_iter2 = map.iterator();
     while (deps_iter2.next()) |dep| {
-        const advisories = fetchAdvisories(allocator, dep.value_ptr.fingerprint) catch |e| {
-            std.log.err("error fetching advisories for '{s}' ({any})", .{ dep.value_ptr.name, e });
+        // TODO: For now we only look for advisories @ Zig-Sec/advisory-db
+        const advisories = ZigsecAdvisoryApi.fetchAdvisories(
+            &http_client,
+            dep.value_ptr.fingerprint,
+            allocator,
+        ) catch |e| {
+            std.log.warn("no advisories for '{s}' ({any})", .{ dep.value_ptr.name, e });
             continue;
         };
         defer {
@@ -59,6 +78,10 @@ pub fn cmdAudit(
             allocator.free(advisories);
         }
 
+        // If the advisory is applicable, i.e. the dependency contains a vulnerability,
+        // display information about it.
+        //
+        // TODO: add a dependency tree! Otherwise it is confusing for transitive dependencies.
         for (advisories) |adv| {
             if (adv.vulnerable(dep.value_ptr.version)) {
                 try stdout.writer().print(
@@ -88,8 +111,6 @@ pub fn cmdAudit(
                 vulnerability_counter += 1;
             }
         }
-
-        //try dep.value_ptr.print(stdout.writer());
     }
 
     if (vulnerability_counter > 0) {
@@ -351,142 +372,3 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
 
     return fs.getAppDataDir(allocator, appname);
 }
-
-pub fn fetchAdvisories(
-    allocator: Allocator,
-    fingerprint: u64,
-) ![]const Advisory {
-    var advisories = std.ArrayList(Advisory).init(allocator);
-    errdefer advisories.deinit();
-
-    const fingerprint_string = try std.fmt.allocPrint(allocator, "{x}", .{fingerprint});
-    defer allocator.free(fingerprint_string);
-
-    var http_client: std.http.Client = .{ .allocator = allocator };
-    defer http_client.deinit();
-
-    try http_client.initDefaultProxies(allocator);
-
-    var response_body = std.ArrayList(u8).init(allocator);
-    defer response_body.deinit();
-
-    const fingerprint_url = try std.fmt.allocPrint(allocator, "https://api.github.com/repos/Zig-Sec/advisory-db/contents/packages/{s}", .{fingerprint_string});
-    defer allocator.free(fingerprint_url);
-
-    const response = try http_client.fetch(.{
-        .headers = .{
-            .accept_encoding = .{ .override = "application/vnd.github+json" },
-        },
-        .method = .GET,
-        .location = .{ .url = fingerprint_url },
-        .response_storage = .{ .dynamic = &response_body },
-    });
-    _ = response;
-
-    //std.debug.print("{s}\n", .{response_body.items});
-
-    const files = std.json.parseFromSliceLeaky(
-        GithubApi.FileResponse,
-        allocator,
-        response_body.items,
-        .{
-            .ignore_unknown_fields = true,
-        },
-    ) catch {
-        // We are unable to parse the response, i.e., no advisories found.
-        return try advisories.toOwnedSlice();
-    };
-
-    //for (files) |file| std.debug.print("{s}\n", .{file.name});
-
-    for (files) |file| {
-        var response_body2 = std.ArrayList(u8).init(allocator);
-        defer response_body2.deinit();
-
-        _ = try http_client.fetch(.{
-            .headers = .{
-                .accept_encoding = .{ .override = "application/vnd.github+json" },
-            },
-            .method = .GET,
-            .location = .{ .url = file.url },
-            .response_storage = .{ .dynamic = &response_body2 },
-        });
-
-        //std.debug.print("{s}\n", .{response_body2.items});
-
-        const advisory_file = std.json.parseFromSliceLeaky(
-            GithubApi.File,
-            allocator,
-            response_body2.items,
-            .{
-                .ignore_unknown_fields = true,
-            },
-        ) catch |e| {
-            std.log.err("unable to parse '{s}' advisory file ({any})! Please consider reporting this as an issue.", .{ file.name, e });
-            continue;
-        };
-
-        var b64 = std.ArrayList(u8).init(allocator);
-        defer b64.deinit();
-        var iter = std.mem.splitAny(u8, advisory_file.content, "\n");
-        while (iter.next()) |chunk| try b64.appendSlice(chunk);
-
-        //std.debug.print("{s}\n", .{b64.items});
-
-        const l = std.base64.standard.Decoder.calcSizeForSlice(b64.items) catch |e| {
-            std.log.err("unable to calc size for bas64 string ({any})\n", .{e});
-            continue;
-        };
-        const dest = try allocator.alloc(u8, l);
-        defer allocator.free(dest);
-
-        std.base64.standard.Decoder.decode(dest, b64.items) catch |e| {
-            std.log.err("unable to decode base64 ({any})\n", .{e});
-            continue;
-        };
-
-        //std.debug.print("{s}\n", .{dest});
-        const s = try allocator.dupeZ(u8, dest);
-        defer allocator.free(s);
-
-        const package_advisory = try std.zon.parse.fromSlice(
-            Advisory,
-            allocator,
-            s,
-            null,
-            .{ .ignore_unknown_fields = true },
-        );
-
-        //std.debug.print("{any}\n", .{package_advisory});
-
-        try advisories.append(package_advisory);
-    }
-
-    return try advisories.toOwnedSlice();
-}
-
-pub const GithubApi = struct {
-    pub const FileResponse = []const FileDescriptor;
-
-    pub const FileDescriptor = struct {
-        name: []const u8,
-        url: []const u8,
-
-        pub fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
-            allocator.free(self.name);
-            allocator.free(self.url);
-        }
-    };
-
-    pub const File = struct {
-        content: []const u8,
-        encoding: []const u8,
-        html_url: []const u8,
-
-        pub fn deinit(self: *const @This(), allocator: std.mem.Allocator) void {
-            allocator.free(self.name);
-            allocator.free(self.encoding);
-            allocator.free(self.html_url);
-        }
-    };
-};
