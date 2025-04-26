@@ -57,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe_mod.addImport("uuid", uuid_module);
     exe_mod.addImport("clap", clap_module);
     exe_mod.addImport("advisory", advisory_module);
 

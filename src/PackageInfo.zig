@@ -15,7 +15,7 @@ children: std.ArrayList(u64),
 
 pub fn print(self: *const @This(), writer: anytype) !void {
     try writer.print(
-        "{s}:\n  hash: {s}\n  url: {s}\n  fingerprint: {x}\n  version: {d}.{d}.{d}\n  dependencies:\n",
+        "{s}:\n  hash: {s}\n  url: {s}\n  fingerprint: {x}\n  version: {d}.{d}.{d}{s}{s}{s}{s}\n  dependencies:\n",
         .{
             self.name,
             self.hash,
@@ -24,6 +24,10 @@ pub fn print(self: *const @This(), writer: anytype) !void {
             self.version.major,
             self.version.minor,
             self.version.patch,
+            if (self.version.pre) |_| "-" else "",
+            if (self.version.pre) |pre| pre else "",
+            if (self.version.build) |_| "+" else "",
+            if (self.version.build) |build| build else "",
         },
     );
     for (self.children.items) |child| {
@@ -33,7 +37,7 @@ pub fn print(self: *const @This(), writer: anytype) !void {
 
 pub fn printMermaid(self: *const @This(), writer: anytype) !void {
     try writer.print(
-        "0x{x}[\"`<a href='{s}'>{s}</a>\n{s}\nv{d}.{d}.{d}`\"]\n",
+        "0x{x}[\"`<a href='{s}'>{s}</a>\n{s}\nv{d}.{d}.{d}{s}{s}{s}{s}`\"]\n",
         .{
             self.fingerprint,
             self.url,
@@ -42,6 +46,10 @@ pub fn printMermaid(self: *const @This(), writer: anytype) !void {
             self.version.major,
             self.version.minor,
             self.version.patch,
+            if (self.version.pre) |_| "-" else "",
+            if (self.version.pre) |pre| pre else "",
+            if (self.version.build) |_| "+" else "",
+            if (self.version.build) |build| build else "",
         },
     );
 }

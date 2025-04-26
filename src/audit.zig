@@ -90,7 +90,7 @@ pub fn cmdAudit(
                 try stdout.writer().print(
                     \\
                     \\Package:      {s}
-                    \\Version:      {d}.{d}.{d}
+                    \\Version:      {d}.{d}.{d}{s}{s}{s}{s}
                     \\Title:        {s}
                     \\Date:         {s}
                     \\ID:           {s}
@@ -105,6 +105,10 @@ pub fn cmdAudit(
                         dep.value_ptr.version.major,
                         dep.value_ptr.version.minor,
                         dep.value_ptr.version.patch,
+                        if (dep.value_ptr.version.pre) |_| "-" else "",
+                        if (dep.value_ptr.version.pre) |pre| pre else "",
+                        if (dep.value_ptr.version.build) |_| "+" else "",
+                        if (dep.value_ptr.version.build) |build| build else "",
                         adv.description,
                         adv.date,
                         adv.id,
@@ -396,7 +400,20 @@ fn makeDepTreeStr(
     var node = map.get(fp).?;
 
     // this is the leaf
-    try chain.append(try std.fmt.allocPrint(allocator, "{s} {d}.{d}.{d}", .{ node.name, node.version.major, node.version.minor, node.version.patch }));
+    try chain.append(try std.fmt.allocPrint(
+        allocator,
+        "{s} {d}.{d}.{d}{s}{s}{s}{s}",
+        .{
+            node.name,
+            node.version.major,
+            node.version.minor,
+            node.version.patch,
+            if (node.version.pre) |_| "-" else "",
+            if (node.version.pre) |pre| pre else "",
+            if (node.version.build) |_| "+" else "",
+            if (node.version.build) |build| build else "",
+        },
+    ));
     try visited.append(node.fingerprint);
 
     loop: while (true) {
@@ -414,7 +431,20 @@ fn makeDepTreeStr(
                 if (child == node.fingerprint and seen) {
                     break :loop; //TODO is this enough to catch infinite loops?
                 } else if (child == node.fingerprint) {
-                    try chain.append(try std.fmt.allocPrint(allocator, "{s} {d}.{d}.{d}", .{ item.name, item.version.major, item.version.minor, item.version.patch }));
+                    try chain.append(try std.fmt.allocPrint(
+                        allocator,
+                        "{s} {d}.{d}.{d}{s}{s}{s}{s}",
+                        .{
+                            item.name,
+                            item.version.major,
+                            item.version.minor,
+                            item.version.patch,
+                            if (node.version.pre) |_| "-" else "",
+                            if (node.version.pre) |pre| pre else "",
+                            if (node.version.build) |_| "+" else "",
+                            if (node.version.build) |build| build else "",
+                        },
+                    ));
                     try visited.append(item.fingerprint);
 
                     node = map.get(item.fingerprint).?;

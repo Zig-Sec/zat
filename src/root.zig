@@ -17,6 +17,8 @@ pub const audit = @import("audit.zig");
 
 pub const graph = @import("graph.zig");
 
+pub const sbom = @import("sbom.zig");
+
 test "root tests" {
     _ = bzz;
     _ = advisory;
@@ -25,4 +27,5 @@ test "root tests" {
     _ = Package;
     _ = audit;
     _ = graph;
+    _ = sbom;
 }

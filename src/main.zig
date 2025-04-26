@@ -26,6 +26,8 @@ pub fn main() !void {
         \\-y                       Accept all changes
         \\--mermaid                Use the mermaid format
         \\--path <str>             Define a path
+        \\--sbom                   Generate a SBOM for a package
+        \\--cyclonedx-json         Create a CycloneDX SBOM using the Json format
         \\
     );
 
@@ -45,6 +47,8 @@ pub fn main() !void {
         try root.release.cmdNewRelease(allocator, arena, res.args);
     } else if (res.args.graph != 0) {
         try root.graph.cmdGraph(allocator, arena, res.args);
+    } else if (res.args.sbom != 0) {
+        try root.sbom.cmdSbom(allocator, arena, res.args);
     } else {
         try std.fmt.format(stdout.writer(), help_text, .{});
         return;
@@ -63,9 +67,10 @@ const help_text =
     \\Syntax: zat [options]
     \\
     \\Commands:
-    \\ -h, --help                                  Display this help and exit.
-    \\ --release                                   Create a new release
+    \\ -h, --help                                  Display this help and exit
     \\ --graph                                     Create a dependency graph
+    \\ --audit                                     Audit the given package
+    \\ --sbom                                      Generate a SBOM for a package
     \\
     \\Options:
     \\ -y                                          Accept all
@@ -76,7 +81,10 @@ const help_text =
     \\ --patch                                     Create a patch release
     \\
     \\Graph Options
-    \\ --mermaid                                   Create a mermaid graph (supported by Github REDMEs)
+    \\ --mermaid                                   Create a mermaid graph (supported by Github READMEs)
     \\ --path <str>                                The file to write the graph to
+    \\
+    \\SBOM Options
+    \\ --cyclonedx-json                            Create a CycloneDX SBOM using the Json format (default)
     \\
 ;
