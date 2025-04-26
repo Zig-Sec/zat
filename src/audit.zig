@@ -84,6 +84,9 @@ pub fn cmdAudit(
         // TODO: add a dependency tree! Otherwise it is confusing for transitive dependencies.
         for (advisories) |adv| {
             if (adv.vulnerable(dep.value_ptr.version)) {
+                const tree = try makeDepTreeStr(adv.fingerprint, &map, allocator);
+                defer allocator.free(tree);
+
                 try stdout.writer().print(
                     \\
                     \\Package:      {s}
@@ -93,6 +96,8 @@ pub fn cmdAudit(
                     \\ID:           {s}
                     \\URL:          https://zigsec.org/advisories/{s}/
                     \\Solution:     {s}
+                    \\Dependency tree:
+                    \\{s}
                     \\
                 ,
                     .{
@@ -105,6 +110,7 @@ pub fn cmdAudit(
                         adv.id,
                         adv.id,
                         if (adv.recommended) |rec| rec else "None",
+                        tree,
                     },
                 );
 
@@ -371,4 +377,68 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
     }
 
     return fs.getAppDataDir(allocator, appname);
+}
+
+fn makeDepTreeStr(
+    fp: u64,
+    map: *const PackageInfo.PackageInfoMap,
+    allocator: Allocator,
+) ![]const u8 {
+    var visited = std.ArrayList(u64).init(allocator);
+    defer visited.deinit();
+
+    var chain = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (chain.items) |item| allocator.free(item);
+        chain.deinit();
+    }
+
+    var node = map.get(fp).?;
+
+    // this is the leaf
+    try chain.append(try std.fmt.allocPrint(allocator, "{s} {d}.{d}.{d}", .{ node.name, node.version.major, node.version.minor, node.version.patch }));
+    try visited.append(node.fingerprint);
+
+    loop: while (true) {
+        var ci = map.valueIterator();
+        while (ci.next()) |item| {
+            var seen = false;
+            for (visited.items) |n| {
+                if (n == item.fingerprint) {
+                    seen = true;
+                    break;
+                }
+            }
+
+            for (item.children.items) |child| {
+                if (child == node.fingerprint and seen) {
+                    break :loop; //TODO is this enough to catch infinite loops?
+                } else if (child == node.fingerprint) {
+                    try chain.append(try std.fmt.allocPrint(allocator, "{s} {d}.{d}.{d}", .{ item.name, item.version.major, item.version.minor, item.version.patch }));
+                    try visited.append(item.fingerprint);
+
+                    node = map.get(item.fingerprint).?;
+                    continue :loop;
+                }
+            }
+        }
+
+        break;
+    }
+
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
+    var offset: usize = 0;
+    while (true) {
+        const n = chain.pop();
+        if (n == null) break;
+
+        for (0..offset) |_| try result.append(' ');
+        if (offset > 0) try result.appendSlice("└──");
+        try result.writer().print("{s}\n", .{n.?});
+
+        offset += 2;
+    }
+
+    return try result.toOwnedSlice();
 }

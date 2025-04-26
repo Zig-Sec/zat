@@ -23,6 +23,9 @@ Date:         2025-03-16
 ID:           ZIGSEC-2025-0001
 URL:          https://zigsec.org/advisories/ZIGSEC-2025-0001/
 Solution:     Don't worry! But you should upgrade anyway as a new zbor release is available.
+Dependency tree:
+keylib 0.6.1
+  └──zbor 0.17.0
 
 error: 1 vulnerability found!
 ```
