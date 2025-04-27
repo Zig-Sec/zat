@@ -78,22 +78,29 @@ pub fn componentFromPackageInfo(allocator: Allocator, pi: *const PackageInfo) !C
     );
     errdefer allocator.free(bomref);
 
-    const package_ref = try allocator.dupe(u8, pi.url);
-    errdefer allocator.free(package_ref);
-
-    const extrefs = try allocator.alloc(ExternalReference, 1);
+    var extrefs = try allocator.alloc(ExternalReference, 0);
     errdefer allocator.free(extrefs);
-    extrefs[0] = .{
-        .url = package_ref,
-        .type = .vcs,
-    };
+
+    if (!std.mem.eql(u8, "", pi.url)) {
+        const l = extrefs.len;
+
+        const package_ref = try allocator.dupe(u8, pi.url);
+        errdefer allocator.free(package_ref);
+
+        extrefs = try allocator.realloc(extrefs, l + 1);
+
+        extrefs[l] = .{
+            .url = package_ref,
+            .type = .vcs,
+        };
+    }
 
     return .{
         .type = .application,
         .@"bom-ref" = bomref,
         .name = name,
         .version = version,
-        .externalReferences = extrefs,
+        .externalReferences = if (extrefs.len == 0) null else extrefs,
     };
 }
 
