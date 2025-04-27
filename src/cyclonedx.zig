@@ -58,19 +58,23 @@ pub fn componentFromPackageInfo(allocator: Allocator, pi: *const PackageInfo) !C
 
     const version = try std.fmt.allocPrint(
         allocator,
-        "{d}.{d}.{d}",
+        "{d}.{d}.{d}{s}{s}{s}{s}",
         .{
             pi.version.major,
             pi.version.minor,
             pi.version.patch,
+            if (pi.version.pre) |_| "-" else "",
+            if (pi.version.pre) |pre| pre else "",
+            if (pi.version.build) |_| "+" else "",
+            if (pi.version.build) |build| build else "",
         },
     );
     errdefer allocator.free(version);
 
     const bomref = try std.fmt.allocPrint(
         allocator,
-        "{x}",
-        .{pi.fingerprint},
+        "{x}@{s}",
+        .{ pi.fingerprint, version },
     );
     errdefer allocator.free(bomref);
 

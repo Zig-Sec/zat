@@ -180,7 +180,7 @@ pub fn fetchPackageDependencies(
         .name = try allocator.dupe(u8, manifest.name),
         .hash = try allocator.dupe(u8, ""),
         .url = try allocator.dupe(u8, ""),
-        .fingerprint = 0,
+        .fingerprint = genFingerprint(manifest.name, manifest.id),
         .version = manifest.version,
         .children = std.ArrayList(u64).init(allocator),
     };
@@ -336,7 +336,7 @@ pub fn fetchDependency(
     var child_deps = std.ArrayList([]const u8).init(allocator);
 
     if (fetch.manifest) |manifest| {
-        const fp = @as(u64, @intCast(std.hash.Crc32.hash(manifest.name))) << 32 | manifest.id;
+        const fp = genFingerprint(manifest.name, manifest.id);
         if (parent) |p| try p.children.append(fp);
 
         var children_iter = manifest.dependencies.iterator();
@@ -471,4 +471,8 @@ fn makeDepTreeStr(
     }
 
     return try result.toOwnedSlice();
+}
+
+pub fn genFingerprint(name: []const u8, id: u32) u64 {
+    return @as(u64, @intCast(std.hash.Crc32.hash(name))) << 32 | id;
 }
