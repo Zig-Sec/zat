@@ -59,7 +59,7 @@ pub fn cmdSbom(
         errdefer allocator.free(tools);
         tools[0] = zat_tool_comp;
 
-        const comp = try cyclonedx.componentFromPackageInfo(allocator, &root);
+        const comp = try cyclonedx.componentFromPackageInfo(allocator, &root, .application);
         errdefer comp.deinit(allocator);
 
         sbom.metadata = .{
@@ -68,6 +68,16 @@ pub fn cmdSbom(
             },
             .component = comp,
         };
+    }
+
+    {
+        var components_iterator = map.valueIterator();
+        while (components_iterator.next()) |info| {
+            const comp = try cyclonedx.componentFromPackageInfo(allocator, info, .library);
+            errdefer comp.deinit(allocator);
+
+            try sbom.addComponent(comp, allocator);
+        }
     }
 
     root_prog_node.end(); // this comes right before writing...

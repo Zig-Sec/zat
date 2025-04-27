@@ -36,6 +36,7 @@ pub const SBOM = struct {
     serialNumber: SerialNumber.SerialNumber,
     version: Version = 1,
     metadata: ?Metadata = null,
+    components: ?[]Component = null,
 
     pub fn new(allocator: Allocator) !@This() {
         _ = allocator;
@@ -49,10 +50,27 @@ pub const SBOM = struct {
 
     pub fn deinit(self: *const @This(), allocator: Allocator) void {
         if (self.metadata) |meta| meta.deinit(allocator);
+        if (self.components) |comps| {
+            for (comps) |comp| comp.deinit(allocator);
+            allocator.free(comps);
+        }
+    }
+
+    pub fn addComponent(self: *@This(), comp: Component, allocator: Allocator) !void {
+        if (self.components == null)
+            self.components = try allocator.alloc(Component, 1)
+        else
+            self.components = try allocator.realloc(self.components.?, self.components.?.len + 1);
+
+        self.components.?[self.components.?.len - 1] = comp;
     }
 };
 
-pub fn componentFromPackageInfo(allocator: Allocator, pi: *const PackageInfo) !Component {
+pub fn componentFromPackageInfo(
+    allocator: Allocator,
+    pi: *const PackageInfo,
+    t: ?Component.Type,
+) !Component {
     const name = try allocator.dupe(u8, pi.name);
     errdefer allocator.free(name);
 
@@ -96,7 +114,7 @@ pub fn componentFromPackageInfo(allocator: Allocator, pi: *const PackageInfo) !C
     }
 
     return .{
-        .type = .application,
+        .type = if (t) |t_| t_ else .application,
         .@"bom-ref" = bomref,
         .name = name,
         .version = version,
