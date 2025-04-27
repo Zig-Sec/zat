@@ -117,7 +117,14 @@ pub fn componentFromPackageInfo(
     var extrefs = try allocator.alloc(ExternalReference, 0);
     errdefer allocator.free(extrefs);
 
+    var purl: ?[]const u8 = null;
+
     if (!std.mem.eql(u8, "", pi.url)) {
+        // Define purl based on url
+        // TODO: currently only works with git
+        purl = purlFromUrl(pi.url, allocator, version) catch null;
+
+        // Add external reference to the package
         const l = extrefs.len;
 
         const package_ref = try allocator.dupe(u8, pi.url);
@@ -169,6 +176,7 @@ pub fn componentFromPackageInfo(
             .@"bom-ref" = bomref,
             .name = name,
             .version = version,
+            .purl = purl,
             .externalReferences = if (extrefs.len == 0) null else extrefs,
         },
         dependency,
@@ -200,6 +208,44 @@ pub fn makeZatToolComponent(allocator: Allocator) !Component {
         .name = name,
         .externalReferences = extrefs,
     };
+}
+
+pub fn purlFromUrl(url: []const u8, allocator: Allocator, version_string: ?[]const u8) ![]const u8 {
+    if (std.mem.indexOf(u8, url, "github")) |idx| {
+        return gitPurlFromUrl(url, allocator, version_string, idx, "github");
+    } else if (std.mem.indexOf(u8, url, "gitea")) |idx| {
+        return gitPurlFromUrl(url, allocator, version_string, idx, "gitea");
+    } else if (std.mem.indexOf(u8, url, "gitlab")) |idx| {
+        return gitPurlFromUrl(url, allocator, version_string, idx, "gitlab");
+    } else {
+        return error.UnsupportedCandidateType;
+    }
+}
+
+fn gitPurlFromUrl(url: []const u8, allocator: Allocator, version_string: ?[]const u8, idx: usize, vcs: []const u8) ![]const u8 {
+    var begin = idx;
+    while (begin < url.len and url[begin] != '/') begin += 1;
+
+    var end = begin + 1;
+    var count: u8 = 0;
+    while (end < url.len) {
+        if (url[end] == '/') {
+            if (count > 0) break;
+            count += 1;
+        }
+        end += 1;
+    }
+    // pkg:github/package-url/purl-spec@244fd47e07d1004f0aed9c
+    return std.fmt.allocPrint(
+        allocator,
+        "pkg:{s}{s}{s}{s}",
+        .{
+            vcs,
+            url[begin..end],
+            if (version_string) |_| "@" else "",
+            if (version_string) |v| v else "",
+        },
+    );
 }
 
 test {

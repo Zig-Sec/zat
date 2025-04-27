@@ -28,6 +28,8 @@ manufacturer: ?Supplier = null,
 name: []const u8,
 /// The component version.
 version: ?[]const u8 = null,
+/// Asserts the identity of the component using package-url (purl). The purl, if specified, must be valid and conform to the specification defined at: https://github.com/package-url/purl-spec. Refer to @.evidence.identity to optionally provide evidence that substantiates the assertion of the component's identity.
+purl: ?[]const u8 = null,
 /// External references provide a way to document systems, sites, and information
 /// that may be relevant but are not included with the BOM. They may also establish
 /// specific relationships within or external to the BOM.
@@ -55,6 +57,7 @@ pub fn deinit(self: *const @This(), allocator: Allocator) void {
     if (self.manufacturer) |sup| sup.deinit(allocator);
     allocator.free(self.name);
     if (self.version) |v| allocator.free(v);
+    if (self.purl) |v| allocator.free(v);
     if (self.externalReferences) |refs| {
         for (refs) |ref| ref.deinit(allocator);
         allocator.free(refs);
