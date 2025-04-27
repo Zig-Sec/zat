@@ -85,3 +85,16 @@ v0.15.0`"]
 ```
 
 The graph depicted above has been generated using `zat --graph --mermaid --path ~/passkeez-graph.txt`. Mermaid graphs can be added to a Github readme by putting it into a code block of the type `mermaid`.
+
+### Software Bill of Materials (SBOMs)
+
+User ZAT to create a SBOMs for your Zig packages.
+
+Just run:
+```bash
+$ zat --sbom
+```
+
+To write the SBOM directly to a file use the `--path <PATH>` option.
+
+> SBOM generation is still work in progress!

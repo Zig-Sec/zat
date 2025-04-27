@@ -59,8 +59,11 @@ pub fn cmdSbom(
         errdefer allocator.free(tools);
         tools[0] = zat_tool_comp;
 
-        const comp = try cyclonedx.componentFromPackageInfo(allocator, &root, .application);
-        errdefer comp.deinit(allocator);
+        const comp, const dep = try cyclonedx.componentFromPackageInfo(allocator, &root, &map, .application);
+        errdefer {
+            comp.deinit(allocator);
+            dep.deinit(allocator);
+        }
 
         sbom.metadata = .{
             .tools = .{
@@ -68,15 +71,20 @@ pub fn cmdSbom(
             },
             .component = comp,
         };
+        try sbom.addDependency(dep, allocator);
     }
 
     {
         var components_iterator = map.valueIterator();
         while (components_iterator.next()) |info| {
-            const comp = try cyclonedx.componentFromPackageInfo(allocator, info, .library);
-            errdefer comp.deinit(allocator);
+            const comp, const dep = try cyclonedx.componentFromPackageInfo(allocator, info, &map, .library);
+            errdefer {
+                comp.deinit(allocator);
+                dep.deinit(allocator);
+            }
 
             try sbom.addComponent(comp, allocator);
+            try sbom.addDependency(dep, allocator);
         }
     }
 

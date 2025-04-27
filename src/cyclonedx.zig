@@ -28,6 +28,8 @@ pub const Supplier = @import("cyclonedx/Supplier.zig");
 
 pub const ExternalReference = @import("cyclonedx/ExternalReference.zig");
 
+pub const Dependency = @import("cyclonedx/Dependency.zig");
+
 pub const SBOM = struct {
     /// Specifies the format of the BOM. This helps to identify the file as CycloneDX since BOMs do not have a filename convention, nor does JSON schema support namespaces. This value must be "CycloneDX".
     bomFormat: []const u8 = BomFormat,
@@ -37,6 +39,7 @@ pub const SBOM = struct {
     version: Version = 1,
     metadata: ?Metadata = null,
     components: ?[]Component = null,
+    dependencies: ?[]Dependency = null,
 
     pub fn new(allocator: Allocator) !@This() {
         _ = allocator;
@@ -54,6 +57,10 @@ pub const SBOM = struct {
             for (comps) |comp| comp.deinit(allocator);
             allocator.free(comps);
         }
+        if (self.dependencies) |deps| {
+            for (deps) |dep| dep.deinit(allocator);
+            allocator.free(deps);
+        }
     }
 
     pub fn addComponent(self: *@This(), comp: Component, allocator: Allocator) !void {
@@ -64,13 +71,24 @@ pub const SBOM = struct {
 
         self.components.?[self.components.?.len - 1] = comp;
     }
+
+    pub fn addDependency(self: *@This(), dep: Dependency, allocator: Allocator) !void {
+        if (self.dependencies == null)
+            self.dependencies = try allocator.alloc(Dependency, 1)
+        else
+            self.dependencies = try allocator.realloc(self.dependencies.?, self.dependencies.?.len + 1);
+
+        self.dependencies.?[self.dependencies.?.len - 1] = dep;
+    }
 };
 
 pub fn componentFromPackageInfo(
     allocator: Allocator,
     pi: *const PackageInfo,
+    map: *const PackageInfo.PackageInfoMap,
     t: ?Component.Type,
-) !Component {
+) !struct { Component, Dependency } {
+    // Make Component for Package
     const name = try allocator.dupe(u8, pi.name);
     errdefer allocator.free(name);
 
@@ -113,12 +131,47 @@ pub fn componentFromPackageInfo(
         };
     }
 
+    // Create Dependency for package
+    var dependency = try Dependency.new(bomref, allocator);
+    errdefer dependency.deinit(allocator);
+
+    for (pi.children.items) |dep_fp| {
+        const dep = map.get(dep_fp).?;
+
+        const dep_version = try std.fmt.allocPrint(
+            allocator,
+            "{d}.{d}.{d}{s}{s}{s}{s}",
+            .{
+                dep.version.major,
+                dep.version.minor,
+                dep.version.patch,
+                if (dep.version.pre) |_| "-" else "",
+                if (dep.version.pre) |pre| pre else "",
+                if (dep.version.build) |_| "+" else "",
+                if (dep.version.build) |build| build else "",
+            },
+        );
+        defer allocator.free(dep_version);
+
+        const dep_ref = try std.fmt.allocPrint(
+            allocator,
+            "{x}@{s}",
+            .{ dep.fingerprint, dep_version },
+        );
+        defer allocator.free(dep_ref);
+
+        try dependency.addDependency(dep_ref, allocator);
+    }
+
     return .{
-        .type = if (t) |t_| t_ else .application,
-        .@"bom-ref" = bomref,
-        .name = name,
-        .version = version,
-        .externalReferences = if (extrefs.len == 0) null else extrefs,
+        .{
+            .type = if (t) |t_| t_ else .application,
+            .@"bom-ref" = bomref,
+            .name = name,
+            .version = version,
+            .externalReferences = if (extrefs.len == 0) null else extrefs,
+        },
+        dependency,
     };
 }
 
@@ -154,4 +207,5 @@ test {
     _ = Component;
     _ = Supplier;
     _ = ExternalReference;
+    _ = Dependency;
 }
