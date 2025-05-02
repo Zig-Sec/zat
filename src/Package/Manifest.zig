@@ -414,8 +414,10 @@ const Parse = struct {
 
         if (p.allow_name_string and node_tags[node] == .string_literal) {
             const name = try parseString(p, node);
-            if (!std.zig.isValidId(name))
-                return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
+            // TODO: We shouldn't care if the name is valid or not.
+            // This is the responsibility of the compiler not ours.
+            //if (!std.zig.isValidId(name))
+            //    return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
 
             if (name.len > max_name_len)
                 return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
