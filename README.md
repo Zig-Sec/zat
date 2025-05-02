@@ -6,6 +6,8 @@ Required compiler version: 0.14.0
 
 After compiling run _zat -h_.
 
+> This is alpha software. Expect bugs and breaking changes!
+
 ## Features
 
 ### Auditing Zig Packages
@@ -96,5 +98,3 @@ $ zat --sbom
 ```
 
 To write the SBOM directly to a file use the `--path <PATH>` option.
-
-> SBOM generation is still work in progress!
