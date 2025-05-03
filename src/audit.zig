@@ -23,6 +23,8 @@ const ZigsecAdvisoryApi = @import("ZigsecAdvisoryApi.zig");
 
 const misc = @import("misc.zig");
 
+const git = @import("git.zig");
+
 const stdout = std.io.getStdOut();
 const stdin = std.io.getStdIn();
 
@@ -175,6 +177,10 @@ pub fn fetchPackageDependencies(
         try dependencies.append(dep.value_ptr.location.url);
     }
 
+    // +++++++++++++++++++++++++++++++++++++++
+    // Infos about the package
+    // +++++++++++++++++++++++++++++++++++++++
+
     // TODO: provide all information
     var root_package = PackageInfo{
         .name = try allocator.dupe(u8, manifest.name),
@@ -185,6 +191,26 @@ pub fn fetchPackageDependencies(
         .children = std.ArrayList(u64).init(allocator),
     };
     errdefer root_package.deinit(allocator);
+
+    // Try to get more information...
+    {
+        // Parse the Git config (if it exists)
+        const git_config = git.GitConfig.load(allocator) catch |e| blk: {
+            std.log.warn("unable to load Git config ({any})", .{e});
+            break :blk null;
+        };
+        if (git_config) |conf| {
+            if (conf.remote_origin.url) |url| {
+                root_package.url = try allocator.dupe(u8, url);
+            }
+
+            conf.deinit();
+        }
+    }
+
+    // +++++++++++++++++++++++++++++++++++++++
+    // Infos about its dependencies
+    // +++++++++++++++++++++++++++++++++++++++
 
     try fetchDependencies(
         allocator,

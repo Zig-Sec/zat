@@ -26,6 +26,8 @@ pub const FindBuildRootOptions = struct {
 
 pub fn findBuildRoot(arena: Allocator, options: FindBuildRootOptions) !BuildRoot {
     const cwd_path = options.cwd_path orelse try process.getCwdAlloc(arena);
+    defer arena.free(cwd_path);
+
     const build_zig_basename = if (options.build_file) |bf|
         fs.path.basename(bf)
     else
@@ -53,6 +55,8 @@ pub fn findBuildRoot(arena: Allocator, options: FindBuildRootOptions) !BuildRoot
     var dirname: []const u8 = cwd_path;
     while (true) {
         const joined_path = try fs.path.join(arena, &[_][]const u8{ dirname, build_zig_basename });
+        defer arena.free(joined_path);
+
         if (fs.cwd().access(joined_path, .{})) |_| {
             const dir = fs.cwd().openDir(dirname, .{}) catch |err| {
                 fatal("unable to open directory while searching for build.zig file, '{s}': {s}", .{ dirname, @errorName(err) });

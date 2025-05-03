@@ -20,6 +20,10 @@
             .hash = "advisory_db-0.0.0-mjR6pWh1AAAGl0-IIkNj_TSMopzbI8T3wfDBU2Y8zeF6",
             //.path = "../advisory-db",
         },
+        .ini = .{
+            .url = "git+https://github.com/ziglibs/ini#30afc2fc875ff817af0ffe490481f6f8aa3b5cd4",
+            .hash = "ini-0.1.0-YCQ9YsQlAACRplKkaUUXQLWVh2P1VULCsaS4JHhmkJRe",
+        },
     },
 
     .paths = .{

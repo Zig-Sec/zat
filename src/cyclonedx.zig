@@ -223,29 +223,48 @@ pub fn purlFromUrl(url: []const u8, allocator: Allocator, version_string: ?[]con
 }
 
 fn gitPurlFromUrl(url: []const u8, allocator: Allocator, version_string: ?[]const u8, idx: usize, vcs: []const u8) ![]const u8 {
-    var begin = idx;
-    while (begin < url.len and url[begin] != '/') begin += 1;
+    if (std.mem.containsAtLeast(u8, url, 1, "http")) {
+        var begin = idx;
+        while (begin < url.len and url[begin] != '/') begin += 1;
 
-    var end = begin + 1;
-    var count: u8 = 0;
-    while (end < url.len) {
-        if (url[end] == '/') {
-            if (count > 0) break;
-            count += 1;
+        var end = begin + 1;
+        var count: u8 = 0;
+        while (end < url.len) {
+            if (url[end] == '/') {
+                if (count > 0) break;
+                count += 1;
+            }
+            end += 1;
         }
-        end += 1;
+        // pkg:github/package-url/purl-spec@244fd47e07d1004f0aed9c
+        return std.fmt.allocPrint(
+            allocator,
+            "pkg:{s}{s}{s}{s}",
+            .{
+                vcs,
+                url[begin..end],
+                if (version_string) |_| "@" else "",
+                if (version_string) |v| v else "",
+            },
+        );
+    } else { // assume ssh
+        var begin1: usize = idx;
+        while (begin1 < url.len and url[begin1 - 1] != ':') begin1 += 1;
+
+        var end1 = begin1 + 1;
+        while (end1 < url.len and url[end1] != '.') end1 += 1;
+
+        return std.fmt.allocPrint(
+            allocator,
+            "pkg:{s}/{s}{s}{s}",
+            .{
+                vcs,
+                url[begin1..end1],
+                if (version_string) |_| "@" else "",
+                if (version_string) |v| v else "",
+            },
+        );
     }
-    // pkg:github/package-url/purl-spec@244fd47e07d1004f0aed9c
-    return std.fmt.allocPrint(
-        allocator,
-        "pkg:{s}{s}{s}{s}",
-        .{
-            vcs,
-            url[begin..end],
-            if (version_string) |_| "@" else "",
-            if (version_string) |v| v else "",
-        },
-    );
 }
 
 test {

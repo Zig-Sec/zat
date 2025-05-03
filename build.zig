@@ -33,6 +33,12 @@ pub fn build(b: *std.Build) void {
     });
     const advisory_module = advisory_dep.module("advisory");
 
+    const ini_dep = b.dependency("ini", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const ini_module = ini_dep.module("ini");
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -46,6 +52,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     lib_mod.addImport("uuid", uuid_module);
+    lib_mod.addImport("advisory", advisory_module);
+    lib_mod.addImport("ini", ini_module);
 
     // We will also create a module for our other entry point, 'main.zig'.
     const exe_mod = b.createModule(.{
@@ -60,6 +68,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addImport("uuid", uuid_module);
     exe_mod.addImport("clap", clap_module);
     exe_mod.addImport("advisory", advisory_module);
+    exe_mod.addImport("ini", ini_module);
 
     // Modules can depend on one another using the `std.Build.Module.addImport` function.
     // This is what allows Zig source code to use `@import("foo")` where 'foo' is not a

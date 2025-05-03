@@ -98,3 +98,11 @@ $ zat --sbom
 ```
 
 To write the SBOM directly to a file use the `--path <PATH>` option.
+
+### Sources of Information
+
+Information about a package are gathered from the following sources:
+
+- `build.zig.zon`: Package properties, including the version and package dependencies.
+- `.git/config`: The url of the audited package.
+
