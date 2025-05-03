@@ -99,6 +99,11 @@ $ zat --sbom
 
 To write the SBOM directly to a file use the `--path <PATH>` option.
 
+#### Open Source SBOM tools
+
+The following tools can be used to play with generated SBOMs:
+- [sbom.sh](https://sbom.sh)
+
 ### Sources of Information
 
 Information about a package are gathered from the following sources:
@@ -106,3 +111,9 @@ Information about a package are gathered from the following sources:
 - `build.zig.zon`: Package properties, including the version and package dependencies.
 - `.git/config`: The url of the audited package.
 
+## Thanks
+
+Special thanks to the following authors:
+- Hejsil for [clap](https://github.com/Hejsil/zig-clap)
+- nektro for [zig-time](https://github.com/nektro/zig-time)    
+- ziglibs for [ini](https://github.com/ziglibs/ini)

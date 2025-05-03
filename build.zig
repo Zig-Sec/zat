@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
     });
     const clap_module = clap_dep.module("clap");
 
-    const advisory_dep = b.dependency("advisory", .{
+    const advisory_dep = b.dependency("advisory_db", .{
         .target = target,
         .optimize = optimize,
     });

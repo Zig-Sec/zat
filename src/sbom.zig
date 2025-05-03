@@ -11,6 +11,8 @@ const misc = @import("misc.zig");
 
 const cyclonedx = @import("cyclonedx.zig");
 
+const time = @import("time.zig");
+
 const Format = enum {
     cdx_json,
 };
@@ -65,7 +67,10 @@ pub fn cmdSbom(
             dep.deinit(allocator);
         }
 
+        const t = time.DateTime.now();
+
         sbom.metadata = .{
+            .timestamp = try t.formatAlloc(allocator, "YYYY-MM-DDTHH:mm:ss z"),
             .tools = .{
                 .components = tools,
             },
