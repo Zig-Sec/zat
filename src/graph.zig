@@ -23,7 +23,6 @@ pub fn cmdGraph(
     var root_prog_node = std.Progress.start(.{
         .root_name = "generate graph",
     });
-    defer root_prog_node.end();
 
     var writer = if (args.path) |path| blk: {
         f = try misc.createFile(path, .{});
@@ -43,13 +42,15 @@ pub fn cmdGraph(
         map.deinit();
     }
 
-    try map.put(0, root);
+    try map.put(try root.allocReference(allocator), root);
 
     const format: Format = if (args.mermaid != 0) blk: {
         break :blk .mermaid;
     } else blk: {
         break :blk .mermaid;
     };
+
+    root_prog_node.end();
 
     switch (format) {
         .mermaid => {
@@ -64,7 +65,10 @@ pub fn cmdGraph(
                 try dep.value_ptr.printMermaid(writer);
 
                 for (dep.value_ptr.children.items) |child| {
-                    try writer.print("    0x{x} --> 0x{x}\n", .{ dep.value_ptr.fingerprint, child });
+                    var end: usize = 0;
+                    while (end < child.len and child[end] != '@') end += 1;
+
+                    try writer.print("    {x} --> {s}\n", .{ dep.value_ptr.fingerprint, child[0..end] });
                 }
             }
         },

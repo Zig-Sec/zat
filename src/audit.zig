@@ -86,7 +86,10 @@ pub fn cmdAudit(
         // TODO: add a dependency tree! Otherwise it is confusing for transitive dependencies.
         for (advisories) |adv| {
             if (adv.vulnerable(dep.value_ptr.version)) {
-                const tree = try makeDepTreeStr(adv.fingerprint, &map, allocator);
+                const k = try dep.value_ptr.allocReference(allocator);
+                defer allocator.free(k);
+
+                const tree = try makeDepTreeStr(k, &map, allocator);
                 defer allocator.free(tree);
 
                 try stdout.writer().print(
@@ -188,13 +191,14 @@ pub fn fetchPackageDependencies(
         .url = try allocator.dupe(u8, ""),
         .fingerprint = genFingerprint(manifest.name, manifest.id),
         .version = manifest.version,
-        .children = std.ArrayList(u64).init(allocator),
+        .children = std.ArrayList([]const u8).init(allocator),
     };
     errdefer root_package.deinit(allocator);
 
     // Try to get more information...
     {
         // Parse the Git config (if it exists)
+        // TODO: the package uri might get added to `build.zig.zon` together with the version: https://github.com/ziglang/zig/issues/23816
         const git_config = git.GitConfig.load(allocator) catch |e| blk: {
             std.log.warn("unable to load Git config ({any})", .{e});
             break :blk null;
@@ -250,10 +254,10 @@ pub fn fetchDependencies(
             for (children) |child| allocator.free(child);
             allocator.free(children);
         }
-        const fp = dep_.fingerprint;
 
-        if (!map.contains(fp)) {
-            try map.put(fp, dep_);
+        const k = try dep_.allocReference(allocator);
+        if (!map.contains(k)) {
+            try map.put(k, dep_);
 
             try fetchDependencies(
                 allocator,
@@ -261,8 +265,10 @@ pub fn fetchDependencies(
                 children,
                 node,
                 map,
-                map.getPtr(fp).?,
+                map.getPtr(k).?,
             );
+        } else {
+            allocator.free(k);
         }
     }
 }
@@ -360,25 +366,30 @@ pub fn fetchDependency(
     }
 
     var child_deps = std.ArrayList([]const u8).init(allocator);
+    errdefer child_deps.deinit();
 
     if (fetch.manifest) |manifest| {
         const fp = genFingerprint(manifest.name, manifest.id);
-        if (parent) |p| try p.children.append(fp);
 
         var children_iter = manifest.dependencies.iterator();
         while (children_iter.next()) |child| {
             try child_deps.append(try allocator.dupe(u8, child.value_ptr.location.url));
         }
 
+        const pi = PackageInfo{
+            .name = try allocator.dupe(u8, manifest.name),
+            .hash = try allocator.dupe(u8, fetch.computedPackageHash().toSlice()),
+            .url = try allocator.dupe(u8, path_or_url),
+            .fingerprint = fp,
+            .version = manifest.version,
+            .children = std.ArrayList([]const u8).init(allocator),
+        };
+
+        // Connect the package to the parent
+        if (parent) |p| try p.children.append(try pi.allocReference(allocator));
+
         return .{
-            .{
-                .name = try allocator.dupe(u8, manifest.name),
-                .hash = try allocator.dupe(u8, fetch.computedPackageHash().toSlice()),
-                .url = try allocator.dupe(u8, path_or_url),
-                .fingerprint = fp,
-                .version = manifest.version,
-                .children = std.ArrayList(u64).init(allocator),
-            },
+            pi,
             try child_deps.toOwnedSlice(),
         };
     }
@@ -410,12 +421,15 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
 }
 
 fn makeDepTreeStr(
-    fp: u64,
+    fp_key: []const u8,
     map: *const PackageInfo.PackageInfoMap,
     allocator: Allocator,
 ) ![]const u8 {
-    var visited = std.ArrayList(u64).init(allocator);
-    defer visited.deinit();
+    var visited = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (visited.items) |item| allocator.free(item);
+        visited.deinit();
+    }
 
     var chain = std.ArrayList([]const u8).init(allocator);
     defer {
@@ -423,7 +437,7 @@ fn makeDepTreeStr(
         chain.deinit();
     }
 
-    var node = map.get(fp).?;
+    var node = map.get(fp_key).?;
 
     // this is the leaf
     try chain.append(try std.fmt.allocPrint(
@@ -440,23 +454,29 @@ fn makeDepTreeStr(
             if (node.version.build) |build| build else "",
         },
     ));
-    try visited.append(node.fingerprint);
+    try visited.append(try node.allocReference(allocator));
 
     loop: while (true) {
         var ci = map.valueIterator();
         while (ci.next()) |item| {
+            const item_key = try item.allocReference(allocator);
+            defer allocator.free(item_key);
+
             var seen = false;
             for (visited.items) |n| {
-                if (n == item.fingerprint) {
+                if (std.mem.eql(u8, n, item_key)) {
                     seen = true;
                     break;
                 }
             }
 
             for (item.children.items) |child| {
-                if (child == node.fingerprint and seen) {
+                const node_key = try node.allocReference(allocator);
+                defer allocator.free(node_key);
+
+                if (std.mem.eql(u8, child, node_key) and seen) {
                     break :loop; //TODO is this enough to catch infinite loops?
-                } else if (child == node.fingerprint) {
+                } else if (std.mem.eql(u8, child, node_key)) {
                     try chain.append(try std.fmt.allocPrint(
                         allocator,
                         "{s} {d}.{d}.{d}{s}{s}{s}{s}",
@@ -471,9 +491,9 @@ fn makeDepTreeStr(
                             if (node.version.build) |build| build else "",
                         },
                     ));
-                    try visited.append(item.fingerprint);
+                    try visited.append(try allocator.dupe(u8, item_key));
 
-                    node = map.get(item.fingerprint).?;
+                    node = map.get(item_key).?;
                     continue :loop;
                 }
             }
