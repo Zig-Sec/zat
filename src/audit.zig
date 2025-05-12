@@ -69,7 +69,7 @@ pub fn cmdAudit(
         // TODO: For now we only look for advisories @ Zig-Sec/advisory-db
         const advisories = ZigsecAdvisoryApi.fetchAdvisories(
             &http_client,
-            dep.value_ptr.fingerprint,
+            dep.value_ptr.name,
             allocator,
         ) catch |e| {
             std.log.warn("no advisories for '{s}' ({any})", .{ dep.value_ptr.name, e });
@@ -85,7 +85,7 @@ pub fn cmdAudit(
         //
         // TODO: add a dependency tree! Otherwise it is confusing for transitive dependencies.
         for (advisories) |adv| {
-            if (adv.vulnerable(dep.value_ptr.version)) {
+            if (adv.fingerprint == dep.value_ptr.fingerprint and adv.vulnerable(dep.value_ptr.version)) {
                 const k = try dep.value_ptr.allocReference(allocator);
                 defer allocator.free(k);
 

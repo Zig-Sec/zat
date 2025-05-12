@@ -6,7 +6,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Advisory = @import("advisory").Advisory;
 
-const fingerprint_url_template = "https://api.github.com/repos/Zig-Sec/advisory-db/contents/packages/{x}";
+const fingerprint_url_template = "https://api.github.com/repos/Zig-Sec/advisory-db/contents/packages/{s}";
 
 const FileResponse = []const FileDescriptor;
 
@@ -45,7 +45,7 @@ const File = struct {
 /// A slice of advisories.
 pub fn fetchAdvisories(
     client: *std.http.Client,
-    fp: u64,
+    name: []const u8,
     allocator: Allocator,
 ) !Advisories {
     var advisories = std.ArrayList(Advisory).init(allocator);
@@ -61,7 +61,7 @@ pub fn fetchAdvisories(
     const fingerprint_url = try std.fmt.allocPrint(
         allocator,
         fingerprint_url_template,
-        .{fp},
+        .{name},
     );
     defer allocator.free(fingerprint_url);
 

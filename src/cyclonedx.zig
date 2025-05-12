@@ -109,8 +109,8 @@ pub fn componentFromPackageInfo(
 
     const bomref = try std.fmt.allocPrint(
         allocator,
-        "{x}@{s}",
-        .{ pi.fingerprint, version },
+        "{s}:{x}@{s}",
+        .{ pi.name, pi.fingerprint, version },
     );
     errdefer allocator.free(bomref);
 
@@ -162,8 +162,8 @@ pub fn componentFromPackageInfo(
 
         const dep_ref = try std.fmt.allocPrint(
             allocator,
-            "{x}@{s}",
-            .{ dep.fingerprint, dep_version },
+            "{s}:{x}@{s}",
+            .{ dep.name, dep.fingerprint, dep_version },
         );
         defer allocator.free(dep_ref);
 

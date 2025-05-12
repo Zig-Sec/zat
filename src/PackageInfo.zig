@@ -18,8 +18,9 @@ children: std.ArrayList([]const u8),
 pub fn allocReference(self: *const @This(), allocator: Allocator) ![]const u8 {
     return try std.fmt.allocPrint(
         allocator,
-        "{x}@{d}.{d}.{d}{s}{s}{s}{s}",
+        "{s}:{x}@{d}.{d}.{d}{s}{s}{s}{s}",
         .{
+            self.name,
             self.fingerprint,
             self.version.major,
             self.version.minor,
