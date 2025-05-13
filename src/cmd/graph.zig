@@ -1,12 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const PackageInfo = @import("PackageInfo.zig");
+const PackageInfo = @import("../PackageInfo.zig");
 const DepMap = PackageInfo.PackageInfoMap;
 
-const audit = @import("audit.zig");
-
-const misc = @import("misc.zig");
+const misc = @import("../misc.zig");
 
 const Format = enum {
     mermaid,
@@ -31,7 +29,7 @@ pub fn cmdGraph(
         break :blk std.io.getStdOut().writer();
     };
 
-    const root, var map = try audit.fetchPackageDependencies(
+    const root, var map = try PackageInfo.fetch.fetchPackageDependencies(
         allocator,
         arena,
         root_prog_node,
@@ -42,7 +40,7 @@ pub fn cmdGraph(
         map.deinit();
     }
 
-    try map.put(try root.allocReference(allocator), root);
+    try map.put(try allocator.dupe(u8, root.ref), root);
 
     const format: Format = if (args.mermaid != 0) blk: {
         break :blk .mermaid;
@@ -59,16 +57,13 @@ pub fn cmdGraph(
 
             var iter = map.iterator();
             while (iter.next()) |dep| {
-                //try writer.print("    {x}[\"`", .{dep.value_ptr.fingerprint});
-                //try dep.value_ptr.printMermaid(writer);
-                //try writer.writeAll("`\"]\n");
                 try dep.value_ptr.printMermaid(writer);
 
                 for (dep.value_ptr.children.items) |child| {
-                    var end: usize = 0;
-                    while (end < child.len and child[end] != '@') end += 1;
-
-                    try writer.print("    {x} --> {s}\n", .{ dep.value_ptr.fingerprint, child[0..end] });
+                    try writer.print("    {s} --> {s}\n", .{
+                        std.fmt.fmtSliceHexLower(&dep.value_ptr.sha256HashFromRef()),
+                        std.fmt.fmtSliceHexLower(&PackageInfo.hashFromRef(child)),
+                    });
                 }
             }
         },

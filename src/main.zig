@@ -42,13 +42,13 @@ pub fn main() !void {
     defer res.deinit();
 
     if (res.args.audit != 0) {
-        try root.audit.cmdAudit(allocator, arena, res.args);
+        try root.cmd.audit.cmdAudit(allocator, arena, res.args);
     } else if (res.args.release != 0) {
         try root.release.cmdNewRelease(allocator, arena, res.args);
     } else if (res.args.graph != 0) {
-        try root.graph.cmdGraph(allocator, arena, res.args);
+        try root.cmd.graph.cmdGraph(allocator, arena, res.args);
     } else if (res.args.sbom != 0) {
-        try root.sbom.cmdSbom(allocator, arena, res.args);
+        try root.cmd.sbom.cmdSbom(allocator, arena, res.args);
     } else {
         try std.fmt.format(stdout.writer(), help_text, .{});
         return;

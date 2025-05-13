@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Cache = std.Build.Cache;
 const fs = std.fs;
 const process = std.process;
 const fatal = process.fatal;
@@ -9,132 +8,16 @@ const Ast = std.zig.Ast;
 const ThreadPool = std.Thread.Pool;
 const Directory = std.Build.Cache.Directory;
 
-const advisory = @import("advisory");
-const Advisory = advisory.Advisory;
-
-const PackageInfo = @import("PackageInfo.zig");
+const PackageInfo = @import("../PackageInfo.zig");
 const DepMap = PackageInfo.PackageInfoMap;
+
+const misc = @import("../misc.zig");
+
+const git = @import("../git.zig");
 
 const builtin = @import("builtin");
 
-const Package = @import("Package.zig");
-
-const ZigsecAdvisoryApi = @import("ZigsecAdvisoryApi.zig");
-
-const misc = @import("misc.zig");
-
-const git = @import("git.zig");
-
-const stdout = std.io.getStdOut();
-const stdin = std.io.getStdIn();
-
-pub fn cmdAudit(
-    allocator: Allocator,
-    arena: Allocator,
-    args: anytype,
-) !void {
-    _ = args;
-
-    var vulnerability_counter: usize = 0;
-
-    // This client is used to access the advisory db on Github.
-    var http_client: std.http.Client = .{ .allocator = allocator };
-    defer http_client.deinit();
-    try http_client.initDefaultProxies(allocator);
-
-    var root_prog_node = std.Progress.start(.{
-        .root_name = "Scanning build.zig.zon",
-    });
-
-    // Here we fetch the dependencies specified in build.zig.zon. This is the
-    // same code as used by the standard libraries `zig build`.
-    //
-    // TODO: They should make this API public so I/we don't have to copy the code
-    // but maybe it's better to simplify the process as we only need the build.zig.zon.
-    // Maybe we need more later on...
-    var root, var map = try fetchPackageDependencies(
-        allocator,
-        arena,
-        root_prog_node,
-    );
-    defer root.deinit(allocator);
-
-    root_prog_node.end();
-
-    try stdout.writer().print("Scanning build.zig.zon for vulnerabilities ({d} package dependencies)\n", .{map.count()});
-
-    // We iterate over every (transitive) dependency and try to fetch advisories.
-    var deps_iter2 = map.iterator();
-    while (deps_iter2.next()) |dep| {
-        // TODO: For now we only look for advisories @ Zig-Sec/advisory-db
-        const advisories = ZigsecAdvisoryApi.fetchAdvisories(
-            &http_client,
-            dep.value_ptr.name,
-            allocator,
-        ) catch |e| {
-            std.log.warn("no advisories for '{s}' ({any})", .{ dep.value_ptr.name, e });
-            continue;
-        };
-        defer {
-            for (advisories) |adv| adv.deinit(allocator);
-            allocator.free(advisories);
-        }
-
-        // If the advisory is applicable, i.e. the dependency contains a vulnerability,
-        // display information about it.
-        //
-        // TODO: add a dependency tree! Otherwise it is confusing for transitive dependencies.
-        for (advisories) |adv| {
-            if (adv.fingerprint == dep.value_ptr.fingerprint and adv.vulnerable(dep.value_ptr.version)) {
-                const k = try dep.value_ptr.allocReference(allocator);
-                defer allocator.free(k);
-
-                const tree = try makeDepTreeStr(k, &map, allocator);
-                defer allocator.free(tree);
-
-                try stdout.writer().print(
-                    \\
-                    \\Package:      {s}
-                    \\Version:      {d}.{d}.{d}{s}{s}{s}{s}
-                    \\Title:        {s}
-                    \\Date:         {s}
-                    \\ID:           {s}
-                    \\URL:          https://zigsec.org/advisories/{s}/
-                    \\Solution:     {s}
-                    \\Dependency tree:
-                    \\{s}
-                    \\
-                ,
-                    .{
-                        adv.package,
-                        dep.value_ptr.version.major,
-                        dep.value_ptr.version.minor,
-                        dep.value_ptr.version.patch,
-                        if (dep.value_ptr.version.pre) |_| "-" else "",
-                        if (dep.value_ptr.version.pre) |pre| pre else "",
-                        if (dep.value_ptr.version.build) |_| "+" else "",
-                        if (dep.value_ptr.version.build) |build| build else "",
-                        adv.description,
-                        adv.date,
-                        adv.id,
-                        adv.id,
-                        if (adv.recommended) |rec| rec else "None",
-                        tree,
-                    },
-                );
-
-                vulnerability_counter += 1;
-            }
-        }
-    }
-
-    if (vulnerability_counter > 0) {
-        try stdout.writer().print("\nerror: {d} {s} found!\n", .{
-            vulnerability_counter,
-            if (vulnerability_counter > 1) "vulnerabilities" else "vulnerability",
-        });
-    }
-}
+const Package = @import("../Package.zig");
 
 pub fn fetchPackageDependencies(
     allocator: Allocator,
@@ -183,15 +66,22 @@ pub fn fetchPackageDependencies(
     // +++++++++++++++++++++++++++++++++++++++
     // Infos about the package
     // +++++++++++++++++++++++++++++++++++++++
+    const fp = genFingerprint(manifest.name, manifest.id);
+    const v = try PackageInfo.allocVersion(manifest.version, allocator);
+    errdefer allocator.free(v);
+    const ref = try PackageInfo.allocReference(manifest.name, fp, v, allocator);
+    errdefer allocator.free(ref);
 
     // TODO: provide all information
     var root_package = PackageInfo{
         .name = try allocator.dupe(u8, manifest.name),
         .hash = try allocator.dupe(u8, ""),
         .url = try allocator.dupe(u8, ""),
-        .fingerprint = genFingerprint(manifest.name, manifest.id),
+        .fingerprint = fp,
         .version = manifest.version,
         .children = std.ArrayList([]const u8).init(allocator),
+        .ref = ref,
+        .sversion = v,
     };
     errdefer root_package.deinit(allocator);
 
@@ -255,9 +145,8 @@ pub fn fetchDependencies(
             allocator.free(children);
         }
 
-        const k = try dep_.allocReference(allocator);
-        if (!map.contains(k)) {
-            try map.put(k, dep_);
+        if (!map.contains(dep_.ref)) {
+            try map.put(try allocator.dupe(u8, dep_.ref), dep_);
 
             try fetchDependencies(
                 allocator,
@@ -265,10 +154,8 @@ pub fn fetchDependencies(
                 children,
                 node,
                 map,
-                map.getPtr(k).?,
+                map.getPtr(dep_.ref).?,
             );
-        } else {
-            allocator.free(k);
         }
     }
 }
@@ -370,6 +257,10 @@ pub fn fetchDependency(
 
     if (fetch.manifest) |manifest| {
         const fp = genFingerprint(manifest.name, manifest.id);
+        const v = try PackageInfo.allocVersion(manifest.version, allocator);
+        errdefer allocator.free(v);
+        const ref = try PackageInfo.allocReference(manifest.name, fp, v, allocator);
+        errdefer allocator.free(ref);
 
         var children_iter = manifest.dependencies.iterator();
         while (children_iter.next()) |child| {
@@ -383,10 +274,12 @@ pub fn fetchDependency(
             .fingerprint = fp,
             .version = manifest.version,
             .children = std.ArrayList([]const u8).init(allocator),
+            .ref = ref,
+            .sversion = v,
         };
 
         // Connect the package to the parent
-        if (parent) |p| try p.children.append(try pi.allocReference(allocator));
+        if (parent) |p| try p.children.append(try allocator.dupe(u8, ref));
 
         return .{
             pi,
@@ -418,105 +311,6 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
     }
 
     return fs.getAppDataDir(allocator, appname);
-}
-
-fn makeDepTreeStr(
-    fp_key: []const u8,
-    map: *const PackageInfo.PackageInfoMap,
-    allocator: Allocator,
-) ![]const u8 {
-    var visited = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (visited.items) |item| allocator.free(item);
-        visited.deinit();
-    }
-
-    var chain = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (chain.items) |item| allocator.free(item);
-        chain.deinit();
-    }
-
-    var node = map.get(fp_key).?;
-
-    // this is the leaf
-    try chain.append(try std.fmt.allocPrint(
-        allocator,
-        "{s} {d}.{d}.{d}{s}{s}{s}{s}",
-        .{
-            node.name,
-            node.version.major,
-            node.version.minor,
-            node.version.patch,
-            if (node.version.pre) |_| "-" else "",
-            if (node.version.pre) |pre| pre else "",
-            if (node.version.build) |_| "+" else "",
-            if (node.version.build) |build| build else "",
-        },
-    ));
-    try visited.append(try node.allocReference(allocator));
-
-    loop: while (true) {
-        var ci = map.valueIterator();
-        while (ci.next()) |item| {
-            const item_key = try item.allocReference(allocator);
-            defer allocator.free(item_key);
-
-            var seen = false;
-            for (visited.items) |n| {
-                if (std.mem.eql(u8, n, item_key)) {
-                    seen = true;
-                    break;
-                }
-            }
-
-            for (item.children.items) |child| {
-                const node_key = try node.allocReference(allocator);
-                defer allocator.free(node_key);
-
-                if (std.mem.eql(u8, child, node_key) and seen) {
-                    break :loop; //TODO is this enough to catch infinite loops?
-                } else if (std.mem.eql(u8, child, node_key)) {
-                    try chain.append(try std.fmt.allocPrint(
-                        allocator,
-                        "{s} {d}.{d}.{d}{s}{s}{s}{s}",
-                        .{
-                            item.name,
-                            item.version.major,
-                            item.version.minor,
-                            item.version.patch,
-                            if (node.version.pre) |_| "-" else "",
-                            if (node.version.pre) |pre| pre else "",
-                            if (node.version.build) |_| "+" else "",
-                            if (node.version.build) |build| build else "",
-                        },
-                    ));
-                    try visited.append(try allocator.dupe(u8, item_key));
-
-                    node = map.get(item_key).?;
-                    continue :loop;
-                }
-            }
-        }
-
-        break;
-    }
-
-    var result = std.ArrayList(u8).init(allocator);
-    errdefer result.deinit();
-    var offset: usize = 0;
-    while (true) {
-        const n = chain.pop();
-        if (n == null) break;
-
-        for (0..offset) |_| try result.append(' ');
-        if (offset > 0) try result.appendSlice("└──");
-        try result.writer().print("{s}\n", .{n.?});
-
-        offset += 2;
-    }
-
-    return try result.toOwnedSlice();
 }
 
 pub fn genFingerprint(name: []const u8, id: u32) u64 {

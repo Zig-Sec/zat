@@ -2,16 +2,14 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
 
-const PackageInfo = @import("PackageInfo.zig");
+const PackageInfo = @import("../PackageInfo.zig");
 const DepMap = PackageInfo.PackageInfoMap;
 
-const audit = @import("audit.zig");
+const misc = @import("../misc.zig");
 
-const misc = @import("misc.zig");
+const cyclonedx = @import("../cyclonedx.zig");
 
-const cyclonedx = @import("cyclonedx.zig");
-
-const time = @import("time.zig");
+const time = @import("../time.zig");
 
 const Format = enum {
     cdx_json,
@@ -36,7 +34,7 @@ pub fn cmdSbom(
         break :blk std.io.getStdOut().writer();
     };
 
-    const root, var map = try audit.fetchPackageDependencies(
+    const root, var map = try PackageInfo.fetch.fetchPackageDependencies(
         allocator,
         arena,
         root_prog_node,
