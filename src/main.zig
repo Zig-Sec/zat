@@ -20,6 +20,7 @@ pub fn main() !void {
         \\--audit                  Audit a package
         \\--release                Create a new release for a package
         \\--graph                  Create a dependency graph
+        \\--introspect
         \\--major                  Major release
         \\--minor                  Minor release
         \\--patch                  Patch release
@@ -49,6 +50,8 @@ pub fn main() !void {
         try root.cmd.graph.cmdGraph(allocator, arena, res.args);
     } else if (res.args.sbom != 0) {
         try root.cmd.sbom.cmdSbom(allocator, arena, res.args);
+    } else if (res.args.introspect != 0) {
+        try root.cmd.introspect.cmdIntrospect(allocator, arena, res.args);
     } else {
         try std.fmt.format(stdout.writer(), help_text, .{});
         return;
