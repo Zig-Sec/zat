@@ -1,0 +1,226 @@
+// Example for PassKeeZ (only a rough sketch of the idea!)
+
+const std = @import("std");
+
+pub fn build2(b: *zat.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const keylib_dep = b.dependency("keylib", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const ccdb_dep = b.dependency("ccdb", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const kdbx_dep = b.dependency("kdbx", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const uuid_dep = b.dependency("uuid", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "passkeez",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .version = .{
+            .major = 0,
+            .minor = 5,
+            .patch = 2,
+        },
+    });
+    exe.root_module.addImport("keylib", keylib_dep.module("keylib"));
+    exe.root_module.addImport("uhid", keylib_dep.module("uhid"));
+    exe.root_module.addImport("zbor", keylib_dep.module("zbor"));
+    exe.root_module.addImport("ccdb", ccdb_dep.module("ccdb"));
+    exe.root_module.addImport("kdbx", kdbx_dep.module("kdbx"));
+    exe.root_module.addImport("uuid", uuid_dep.module("uuid"));
+    exe.linkLibC();
+
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
+
+    //const unit_tests = b.addTest(.{
+    //    .root_source_file = .{ .path = "src/main.zig" },
+    //    .target = target,
+    //    .optimize = optimize,
+    //});
+
+    //const run_unit_tests = b.addRunArtifact(unit_tests);
+
+    //const test_step = b.step("test", "Run unit tests");
+    //test_step.dependOn(&run_unit_tests.step);
+}
+
+//---------------------------------
+// Zig Audit Tool (ZAT)
+//---------------------------------
+
+const stdout = std.io.getStdOut();
+
+pub fn build(b: *std.Build) !void {
+    var b_ = zat.Build{
+        .build = b,
+        .compiles = std.ArrayList(*std.Build.Step.Compile).init(b.allocator),
+    };
+
+    build2(&b_);
+
+    var comps = std.ArrayList(zat.Components.Component).init(b.allocator);
+
+    for (b_.compiles.items) |comp| {
+        try comps.append(try zat.Components.Component.fromCompile(b.allocator, comp));
+    }
+
+    const components = zat.Components{
+        .components = try comps.toOwnedSlice(),
+    };
+
+    const comp_json = try std.json.stringifyAlloc(b.allocator, components, .{
+        .whitespace = .indent_2,
+        .emit_null_optional_fields = false,
+    });
+
+    try stdout.writeAll(comp_json);
+    try stdout.writeAll("\n");
+}
+
+pub const zat = struct {
+    pub const Components = struct {
+        components: []Component,
+
+        pub const Component = struct {
+            name: []const u8,
+            version: ?[]const u8,
+            imports: []Component,
+            type: Type,
+
+            pub const Type = enum {
+                module,
+                library,
+                executable,
+            };
+
+            pub fn fromCompile(allocator: std.mem.Allocator, cs: *const std.Build.Step.Compile) !Component {
+                var imports = std.ArrayList(Component).init(allocator);
+
+                var iter = cs.root_module.import_table.iterator();
+                while (iter.next()) |kv| {
+                    try imports.append(.{
+                        .name = try allocator.dupe(u8, kv.key_ptr.*),
+                        .version = null, // modules don't have a version right now...
+                        .imports = &.{},
+                        .type = .module,
+                    });
+                }
+
+                return .{
+                    .name = try allocator.dupe(u8, cs.out_filename),
+                    .version = if (cs.version) |v| try std.fmt.allocPrint(
+                        allocator,
+                        "{d}.{d}.{d}{s}{s}{s}{s}",
+                        .{
+                            v.major,
+                            v.minor,
+                            v.patch,
+                            if (v.pre) |_| "-" else "",
+                            if (v.pre) |pre| pre else "",
+                            if (v.build) |_| "+" else "",
+                            if (v.build) |b| b else "",
+                        },
+                    ) else null,
+                    .type = switch (cs.kind) {
+                        .exe => .executable,
+                        else => .library,
+                    },
+                    .imports = try imports.toOwnedSlice(),
+                };
+            }
+        };
+    };
+
+    pub const Build = struct {
+        build: *std.Build,
+        compiles: std.ArrayList(*std.Build.Step.Compile),
+
+        args: ?[]const []const u8 = null,
+
+        pub fn standardTargetOptions(b: *Build, args: std.Build.StandardTargetOptionsArgs) std.Build.ResolvedTarget {
+            return b.build.standardTargetOptions(args);
+        }
+
+        pub fn standardOptimizeOption(b: *Build, options: std.Build.StandardOptimizeOptionOptions) std.builtin.OptimizeMode {
+            return b.build.standardOptimizeOption(options);
+        }
+
+        pub fn dependency(b: *Build, name: []const u8, args: anytype) *std.Build.Dependency {
+            return b.build.dependency(name, args);
+        }
+
+        pub fn createModule(b: *Build, options: std.Build.Module.CreateOptions) *std.Build.Module {
+            const mod = b.build.createModule(options);
+
+            return mod;
+        }
+
+        pub fn path(b: *Build, sub_path: []const u8) std.Build.LazyPath {
+            return b.build.path(sub_path);
+        }
+
+        pub fn addExecutable(b: *Build, options: std.Build.ExecutableOptions) *std.Build.Step.Compile {
+            const comp = b.build.addExecutable(options);
+
+            b.compiles.append(comp) catch |e| {
+                std.process.fatal("unable to append executable ({any})", .{e});
+            };
+
+            return comp;
+        }
+
+        pub fn addLibrary(b: *Build, options: std.Build.LibraryOptions) *std.Build.Step.Compile {
+            const comp = b.build.addLibrary(options);
+
+            b.compiles.append(comp) catch |e| {
+                std.process.fatal("unable to append library ({any})", .{e});
+            };
+
+            return comp;
+        }
+
+        pub fn installArtifact(b: *Build, artifact: *std.Build.Step.Compile) void {
+            return b.build.installArtifact(artifact);
+        }
+
+        pub fn addRunArtifact(b: *Build, exe: *std.Build.Step.Compile) *std.Build.Step.Run {
+            return b.build.addRunArtifact(exe);
+        }
+
+        pub fn getInstallStep(b: *Build) *std.Build.Step {
+            return b.build.getInstallStep();
+        }
+
+        pub fn step(b: *Build, name: []const u8, description: []const u8) *std.Build.Step {
+            return b.build.step(name, description);
+        }
+
+        pub fn addTest(b: *Build, options: std.Build.TestOptions) *std.Build.Step.Compile {
+            return b.build.addTest(options);
+        }
+    };
+};
