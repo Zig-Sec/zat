@@ -19,6 +19,8 @@ const builtin = @import("builtin");
 
 const Package = @import("../Package.zig");
 
+const src_graph = @import("src_graph.zig");
+
 pub fn fetchPackageDependencies(
     allocator: Allocator,
     arena: Allocator,
@@ -99,6 +101,27 @@ pub fn fetchPackageDependencies(
             }
 
             conf.deinit();
+        }
+    }
+
+    // TODO: test code for parsing the source files
+    outer: {
+        const dir = build_root.directory.handle.openDir("src", .{}) catch break :outer;
+
+        outer2: {
+            const root_mods = src_graph.getUsedModules(allocator, dir, "root.zig") catch |e| {
+                std.log.warn("failed to check modules for 'root.zig ({any})", .{e});
+                break :outer2;
+            };
+            defer root_mods.deinit();
+        }
+
+        outer2: {
+            const main_mods = src_graph.getUsedModules(allocator, dir, "main.zig") catch |e| {
+                std.log.warn("failed to check modules for 'main.zig ({any})", .{e});
+                break :outer2;
+            };
+            defer main_mods.deinit();
         }
     }
 
