@@ -63,10 +63,9 @@ pub fn cmdAudit(
         // If the advisory is applicable, i.e. the dependency contains a vulnerability,
         // display information about it.
         //
-        // TODO: add a dependency tree! Otherwise it is confusing for transitive dependencies.
         for (advisories) |adv| {
             if (adv.fingerprint == dep.value_ptr.fingerprint and adv.vulnerable(dep.value_ptr.version)) {
-                const tree = try PackageInfo.makeDepTreeStr(dep.value_ptr.ref, &map, allocator);
+                const tree = try PackageInfo.makeDepTreeStr(dep.value_ptr.ref, &map, &adv, allocator);
                 defer allocator.free(tree);
 
                 try stdout.writer().print(

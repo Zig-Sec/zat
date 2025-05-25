@@ -84,6 +84,7 @@ pub fn fetchPackageDependencies(
         .children = std.ArrayList([]const u8).init(allocator),
         .ref = ref,
         .sversion = v,
+        .components = std.ArrayList(PackageInfo.Component).init(allocator),
     };
     errdefer root_package.deinit(allocator);
 
@@ -108,21 +109,9 @@ pub fn fetchPackageDependencies(
     outer: {
         const dir = build_root.directory.handle.openDir("src", .{}) catch break :outer;
 
-        outer2: {
-            const root_mods = src_graph.getUsedModules(allocator, dir, "root.zig") catch |e| {
-                std.log.warn("failed to check modules for 'root.zig ({any})", .{e});
-                break :outer2;
-            };
-            defer root_mods.deinit();
-        }
-
-        outer2: {
-            const main_mods = src_graph.getUsedModules(allocator, dir, "main.zig") catch |e| {
-                std.log.warn("failed to check modules for 'main.zig ({any})", .{e});
-                break :outer2;
-            };
-            defer main_mods.deinit();
-        }
+        resolveUsedModules(allocator, dir, &.{ "root.zig", "main.zig" }, &root_package) catch {
+            break :outer;
+        };
     }
 
     // +++++++++++++++++++++++++++++++++++++++
@@ -290,7 +279,7 @@ pub fn fetchDependency(
             try child_deps.append(try allocator.dupe(u8, child.value_ptr.location.url));
         }
 
-        const pi = PackageInfo{
+        var pi = PackageInfo{
             .name = try allocator.dupe(u8, manifest.name),
             .hash = try allocator.dupe(u8, fetch.computedPackageHash().toSlice()),
             .url = try allocator.dupe(u8, path_or_url),
@@ -299,7 +288,19 @@ pub fn fetchDependency(
             .children = std.ArrayList([]const u8).init(allocator),
             .ref = ref,
             .sversion = v,
+            .components = std.ArrayList(PackageInfo.Component).init(allocator),
         };
+
+        var node3 = node2.start("static analysis", 0);
+        // TODO: test code for parsing the source files
+        outer: {
+            const dir = fetch.package_root.root_dir.handle.openDir("src", .{}) catch break :outer;
+
+            resolveUsedModules(allocator, dir, &.{ "root.zig", "main.zig" }, &pi) catch {
+                break :outer;
+            };
+        }
+        node3.end();
 
         // Connect the package to the parent
         if (parent) |p| try p.children.append(try allocator.dupe(u8, ref));
@@ -338,4 +339,26 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
 
 pub fn genFingerprint(name: []const u8, id: u32) u64 {
     return @as(u64, @intCast(std.hash.Crc32.hash(name))) << 32 | id;
+}
+
+/// Statically analyze the AST beginning from a root source file and determine used
+/// modules.
+pub fn resolveUsedModules(
+    allocator: Allocator,
+    dir: std.fs.Dir,
+    root_source_files: []const []const u8,
+    pi: *PackageInfo,
+) !void {
+    for (root_source_files) |file_path| {
+        const mods = src_graph.getUsedModules(allocator, dir, file_path) catch |e| {
+            std.log.warn("failed to check modules for '{s}' ({any})", .{ file_path, e });
+            continue;
+        };
+        errdefer mods.deinit();
+
+        try pi.components.append(.{
+            .name = try allocator.dupe(u8, file_path),
+            .modules = mods,
+        });
+    }
 }

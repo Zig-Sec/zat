@@ -145,25 +145,14 @@ pub fn componentFromPackageInfo(
     for (pi.children.items) |dep_fp| {
         const dep = map.get(dep_fp).?;
 
-        const dep_version = try std.fmt.allocPrint(
-            allocator,
-            "{d}.{d}.{d}{s}{s}{s}{s}",
-            .{
-                dep.version.major,
-                dep.version.minor,
-                dep.version.patch,
-                if (dep.version.pre) |_| "-" else "",
-                if (dep.version.pre) |pre| pre else "",
-                if (dep.version.build) |_| "+" else "",
-                if (dep.version.build) |build| build else "",
-            },
-        );
+        const dep_version = try PackageInfo.allocVersion(dep.version, allocator);
         defer allocator.free(dep_version);
 
-        const dep_ref = try std.fmt.allocPrint(
+        const dep_ref = try PackageInfo.allocReference(
+            dep.name,
+            dep.fingerprint,
+            dep_version,
             allocator,
-            "{s}:{x}@{s}",
-            .{ dep.name, dep.fingerprint, dep_version },
         );
         defer allocator.free(dep_ref);
 

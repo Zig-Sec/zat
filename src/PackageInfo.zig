@@ -1,7 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const Advisory = @import("advisory").Advisory;
+
 pub const fetch = @import("PackageInfo/fetch.zig");
+pub const graph = @import("PackageInfo/src_graph.zig");
 
 pub const PackageInfo = @This();
 
@@ -17,6 +20,71 @@ version: std.SemanticVersion,
 children: std.ArrayList([]const u8),
 ref: []const u8,
 sversion: []const u8,
+components: std.ArrayList(Component),
+
+pub const Component = struct {
+    name: []const u8,
+    /// Modules detected via a static analysis of the AST of the given package.
+    modules: ?graph.Modules,
+
+    pub const AffectedFunctionResult = struct {
+        file_name: []const u8,
+        function: []const u8,
+    };
+
+    pub fn deinit(self: *const @This(), allocator: Allocator) void {
+        allocator.free(self.name);
+        if (self.modules) |mods| mods.deinit();
+    }
+
+    pub fn affectedFunctionUsed(
+        self: *const @This(),
+        module_name: []const u8,
+        functions: []const []const u8,
+    ) ?AffectedFunctionResult {
+        if (self.modules) |modules| {
+            for (modules.mods.items) |mod| {
+                if (std.mem.eql(u8, module_name, mod.name)) {
+                    for (mod.containers.items) |cont| {
+                        for (functions) |function| {
+                            // TODO: this is a very naive approach. Two things to improve:
+                            // - the static analysis when searching for module usages
+                            // - the comparison
+                            var i: usize = 0;
+                            while (i + 1 < function.len and function[i] != '.') i += 1;
+                            // We strip the module name from the access path as the user
+                            // might have bound the module to a variable with a different
+                            // name.
+                            const f_stripped = function[i..];
+
+                            for (cont.accesses.items) |access| {
+                                std.debug.print("comparing '{s}' and '{s}'\n", .{ access, f_stripped });
+                                if (std.mem.endsWith(u8, access, f_stripped)) {
+                                    // TODO: there might be multiple usages but we only
+                                    // report the first one found. This has to be improved
+                                    // in the future.
+                                    return .{
+                                        .file_name = cont.name,
+                                        .function = function,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+};
+
+pub fn isChild(self: *const @This(), ref: []const u8) bool {
+    for (self.children.items) |child| {
+        if (std.mem.eql(u8, child, ref)) return true;
+    }
+    return false;
+}
 
 /// A reference is a tuple `(name, fingerprint, version)` represented as string in the format `<name>:<fingerprint>@<version>`.
 pub fn allocReference(name: []const u8, fingerprint: u64, v: []const u8, allocator: Allocator) ![]const u8 {
@@ -99,11 +167,14 @@ pub fn deinit(self: *const @This(), allocator: Allocator) void {
     self.children.deinit();
     allocator.free(self.ref);
     allocator.free(self.sversion);
+    for (self.components.items) |comp| comp.deinit(allocator);
+    self.components.deinit();
 }
 
 pub fn makeDepTreeStr(
     fp_key: []const u8,
     map: *const PackageInfo.PackageInfoMap,
+    advisory: *const Advisory,
     allocator: Allocator,
 ) ![]const u8 {
     var visited = std.ArrayList([]const u8).init(allocator);
@@ -146,12 +217,41 @@ pub fn makeDepTreeStr(
                 if (std.mem.eql(u8, child, node.ref) and seen) {
                     break :loop; //TODO is this enough to catch infinite loops?
                 } else if (std.mem.eql(u8, child, node.ref)) {
+                    // Check if the parent has used one of the vulnerable functions
+                    // if present.
+                    var used_str: ?[]const u8 = null;
+                    defer if (used_str) |str| allocator.free(str);
+                    if (std.mem.eql(u8, child, fp_key)) outer: {
+                        //std.debug.print("direct child\n", .{});
+                        if (advisory.affected) |affected| {
+                            //std.debug.print("affected\n", .{});
+                            if (affected.functions) |functions| {
+                                //std.debug.print("functions\n", .{});
+                                for (item.components.items) |comp| {
+                                    //std.debug.print("{s}\n", .{comp.name});
+                                    if (comp.affectedFunctionUsed(advisory.package, functions)) |used| {
+                                        used_str = try std.fmt.allocPrint(
+                                            allocator,
+                                            "[warning: function '{s}' used in '{s}']",
+                                            .{
+                                                used.function,
+                                                used.file_name,
+                                            },
+                                        );
+                                        break :outer;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     try chain.append(try std.fmt.allocPrint(
                         allocator,
-                        "{s} {s}",
+                        "{s} {s} {s}",
                         .{
                             item.name,
                             item.sversion,
+                            if (used_str) |str| str else "",
                         },
                     ));
                     try visited.append(try allocator.dupe(u8, item.ref));
