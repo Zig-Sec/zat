@@ -7,6 +7,8 @@ pub const release = @import("release.zig");
 
 pub const Package = @import("Package.zig");
 
+pub const BuildScript = @import("BuildScript.zig");
+
 /// Command line tool commands
 pub const cmd = @import("cmd.zig");
 

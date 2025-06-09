@@ -21,6 +21,8 @@ const Package = @import("../Package.zig");
 
 const src_graph = @import("src_graph.zig");
 
+const BuildScript = @import("../BuildScript.zig");
+
 pub fn fetchPackageDependencies(
     allocator: Allocator,
     arena: Allocator,
@@ -103,6 +105,14 @@ pub fn fetchPackageDependencies(
 
             conf.deinit();
         }
+    }
+
+    // Try to prase build script
+    outer: {
+        _ = BuildScript.read(allocator, build_root.directory.handle) catch {
+            std.log.warn("unable to read build script for '{s}'", .{root_package.name});
+            break :outer;
+        };
     }
 
     // TODO: test code for parsing the source files
