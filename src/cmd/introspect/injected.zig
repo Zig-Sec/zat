@@ -53,6 +53,7 @@ pub const zat = struct {
                         .exe => .executable,
                         else => .library,
                     },
+                    .root_source_file = if (cs.root_module.root_source_file) |rsf| try allocator.dupe(u8, rsf.getDisplayName()) else null,
                     .imports = try imports.toOwnedSlice(),
                 };
             }
@@ -83,100 +84,46 @@ pub const zat = struct {
                 };
             }
         };
-    };
 
-    pub const Build = struct {
-        build: *std_zat_.Build,
-        modules: std_zat_.StringArrayHashMap(*std_zat_.Build.Module),
+        pub fn fromBuild(b: *const std_zat_.Build) !@This() {
+            var components = std_zat_.ArrayList(Component).init(b.allocator);
 
-        compiles: std_zat_.ArrayList(*std_zat_.Build.Step.Compile),
+            var mod_iter = b.modules.iterator();
+            while (mod_iter.next()) |kv| {
+                try components.append(try Component.fromModule(kv.key_ptr.*, b.allocator, kv.value_ptr.*));
+            }
 
-        args: ?[]const []const u8 = null,
+            var step_iter = b.top_level_steps.iterator();
+            while (step_iter.next()) |kv| {
+                try findCompiles(&components, &kv.value_ptr.*.step, b.allocator);
+            }
 
-        pub fn new(b: *std_zat_.Build) @This() {
             return .{
-                .build = b,
-                .modules = b.modules,
-                .compiles = std_zat_.ArrayList(*std_zat_.Build.Step.Compile).init(b.allocator),
+                .components = try components.toOwnedSlice(),
             };
         }
 
-        pub fn standardTargetOptions(b: *Build, args: std_zat_.Build.StandardTargetOptionsArgs) std_zat_.Build.ResolvedTarget {
-            return b.build.standardTargetOptions(args);
+        fn findCompiles(c: *std_zat_.ArrayList(Component), s: *std_zat_.Build.Step, a: std_zat_.mem.Allocator) !void {
+            switch (s.id) {
+                .compile => {
+                    const cs = s.cast(std_zat_.Build.Step.Compile).?;
+                    try addIfNotPresent(c, try Component.fromCompile(a, cs));
+                },
+                else => {},
+            }
+
+            for (s.dependencies.items) |dep| {
+                try findCompiles(c, dep, a);
+            }
         }
 
-        pub fn standardOptimizeOption(b: *Build, options: std_zat_.Build.StandardOptimizeOptionOptions) std_zat_.builtin.OptimizeMode {
-            return b.build.standardOptimizeOption(options);
-        }
+        fn addIfNotPresent(c: *std_zat_.ArrayList(Component), rhs: Component) !void {
+            for (c.items) |lhs| {
+                // Check if rhs already exists
+                if (std_zat_.mem.eql(u8, lhs.name, rhs.name) and lhs.type == rhs.type) return;
+            }
 
-        pub fn dependency(b: *Build, name: []const u8, args: anytype) *std_zat_.Build.Dependency {
-            return b.build.dependency(name, args);
-        }
-
-        pub fn createModule(b: *Build, options: std_zat_.Build.Module.CreateOptions) *std_zat_.Build.Module {
-            const mod = b.build.createModule(options);
-
-            return mod;
-        }
-
-        pub fn addModule(b: *Build, name: []const u8, options: std_zat_.Build.Module.CreateOptions) *std_zat_.Build.Module {
-            const mod = b.build.addModule(name, options);
-
-            return mod;
-        }
-
-        pub fn path(b: *Build, sub_path: []const u8) std_zat_.Build.LazyPath {
-            return b.build.path(sub_path);
-        }
-
-        pub fn addExecutable(b: *Build, options: std_zat_.Build.ExecutableOptions) *std_zat_.Build.Step.Compile {
-            const comp = b.build.addExecutable(options);
-
-            b.compiles.append(comp) catch |e| {
-                std_zat_.process.fatal("unable to append executable ({any})", .{e});
-            };
-
-            return comp;
-        }
-
-        pub fn addLibrary(b: *Build, options: std_zat_.Build.LibraryOptions) *std_zat_.Build.Step.Compile {
-            const comp = b.build.addLibrary(options);
-
-            b.compiles.append(comp) catch |e| {
-                std_zat_.process.fatal("unable to append library ({any})", .{e});
-            };
-
-            return comp;
-        }
-
-        pub fn installArtifact(b: *Build, artifact: *std_zat_.Build.Step.Compile) void {
-            return b.build.installArtifact(artifact);
-        }
-
-        pub fn addRunArtifact(b: *Build, exe: *std_zat_.Build.Step.Compile) *std_zat_.Build.Step.Run {
-            return b.build.addRunArtifact(exe);
-        }
-
-        pub fn getInstallStep(b: *Build) *std_zat_.Build.Step {
-            return b.build.getInstallStep();
-        }
-
-        pub fn step(b: *Build, name: []const u8, description: []const u8) *std_zat_.Build.Step {
-            return b.build.step(name, description);
-        }
-
-        pub fn addTest(b: *Build, options: std_zat_.Build.TestOptions) *std_zat_.Build.Step.Compile {
-            return b.build.addTest(options);
-        }
-
-        pub fn dupe(b: *Build, bytes: []const u8) []u8 {
-            return b.build.dupe(bytes);
-        }
-
-        pub fn addInstallArtifact(b: *Build, artifact: *std_zat_.Build.Step.Compile, options: std_zat_.Build.Step.InstallArtifact.Options) *std_zat_.Build.Step.InstallArtifact {
-            const artifact_ = b.build.addInstallArtifact(artifact, options);
-
-            return artifact_;
+            try c.append(rhs);
         }
     };
 };

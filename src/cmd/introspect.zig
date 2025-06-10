@@ -9,8 +9,6 @@ const misc = @import("../misc.zig");
 const injected = @import("introspect/injected.zig");
 
 const build_code = @embedFile("introspect/injected.zig");
-const build_function = @embedFile("introspect/build.txt");
-const build_try_function = @embedFile("introspect/build_try.txt");
 
 pub fn cmdIntrospect(
     allocator: Allocator,
@@ -93,8 +91,23 @@ fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
     try backup.writeAll(content);
 
     // Modify
-    var modified = try std.mem.replaceOwned(u8, allocator, content, "std.Build", "zat.Build");
-    modified = try std.mem.replaceOwned(u8, allocator, modified, "fn build", "fn buil_");
+    const modified = try std.mem.replaceOwned(u8, allocator, content, "fn build", "fn buil_");
+
+    const fun_opening = "pub fn build(b: *std.Build) !void {";
+    const fun_closing =
+        \\    const components = try zat.Components.fromBuild(b);
+        \\    const comp_json = try std_zat_.json.stringifyAlloc(
+        \\        b.allocator,
+        \\        components,
+        \\        .{
+        \\            .whitespace = .indent_2,
+        \\            .emit_null_optional_fields = false,
+        \\        },
+        \\    );
+        \\    try std_zat_.io.getStdOut().writeAll(comp_json);
+        \\    try std_zat_.io.getStdOut().writeAll("\n");
+        \\}
+    ;
 
     // TODO: check zig version and adjust modifications
     try fbuild_zig.seekTo(0);
@@ -107,10 +120,15 @@ fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
         \\
         \\{s}
         \\{s}
+        \\{s}
+        \\
+        \\{s}
     ,
         .{
             modified,
-            if (std.mem.containsAtLeast(u8, content, 1, "build(b: *std.Build) !void")) build_try_function else build_function,
+            fun_opening,
+            if (std.mem.containsAtLeast(u8, content, 1, "build(b: *std.Build) !void")) "try buil_(b);" else "buil_(b);",
+            fun_closing,
             build_code,
         },
     );
