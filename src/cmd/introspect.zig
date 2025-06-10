@@ -6,9 +6,11 @@ const fatal = process.fatal;
 
 const misc = @import("../misc.zig");
 
-pub const Build = @import("introspect/Build.zig");
+const injected = @import("introspect/injected.zig");
 
-const build_string = @embedFile("introspect/Build.zig");
+const build_code = @embedFile("introspect/injected.zig");
+const build_function = @embedFile("introspect/build.txt");
+const build_try_function = @embedFile("introspect/build_try.txt");
 
 pub fn cmdIntrospect(
     allocator: Allocator,
@@ -22,38 +24,115 @@ pub fn cmdIntrospect(
         fatal("unable to determine build root ({any})", .{e});
     };
 
-    const build_zig_modified = try readAndModifyBuildZig(build_root.directory.handle, allocator);
-    defer allocator.free(build_zig_modified);
+    try readAndModifyBuildZig(build_root.directory.handle, allocator);
 
-    std.debug.print("{s}\n", .{build_zig_modified});
+    const info = std.process.Child.run(.{
+        .allocator = allocator,
+        .cwd_dir = build_root.directory.handle,
+        .argv = &.{
+            "zig",
+            "build",
+            "-h", // this way build zig only generates the build graph...
+        },
+    }) catch |e| {
+        std.log.err("unable to execute 'zig build -h' ({any})", .{e});
+        restoreBuildZig(build_root.directory.handle, allocator) catch |e2| {
+            std.log.err("unable to restore 'build.zig' ({any})", .{e2});
+            return e;
+        };
+        return e;
+    };
+    defer {
+        allocator.free(info.stdout);
+        allocator.free(info.stderr);
+    }
+
+    switch (info.term.Exited) {
+        0 => {
+            if (std.mem.indexOf(u8, info.stdout, "Usage")) |index| {
+                std.io.getStdOut().writer().print("{s}\n", .{info.stdout[0..index]}) catch {
+                    restoreBuildZig(build_root.directory.handle, allocator) catch |e| {
+                        std.log.err("unable to restore 'build.zig' ({any})", .{e});
+                        return e;
+                    };
+                };
+            }
+        },
+        else => {
+            std.log.err("'build.zig' introspection failed. This is probably due to a corrupted 'build.zig' which is the result of the modification made to the file.\nOriginal error:\n{s}", .{info.stderr[0..]});
+        },
+    }
+
+    restoreBuildZig(build_root.directory.handle, allocator) catch |e| {
+        std.log.err("unable to restore 'build.zig' ({any})", .{e});
+        return e;
+    };
 }
 
-fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) ![]const u8 {
-    const fbuild_zig = try root_dir.openFile("build.zig", .{});
+fn restoreBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
+    const backup = try root_dir.openFile("build.zig.zat", .{});
+    const bz = try root_dir.createFile("build.zig", .{ .truncate = true });
+
+    const content = try backup.readToEndAlloc(allocator, 50_000_000);
+    defer allocator.free(content);
+
+    try bz.writeAll(content);
+}
+
+fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
+    const fbuild_zig = try root_dir.openFile("build.zig", .{
+        .mode = .read_write,
+    });
     defer fbuild_zig.close();
 
     const content = try fbuild_zig.readToEndAlloc(allocator, 50_000_000);
     defer allocator.free(content);
 
-    const modified = try std.mem.replaceOwned(u8, allocator, content, "std.Build", "zat.Build");
+    // Duplicate
+    const backup = try root_dir.createFile("build.zig.zat", .{});
+    try backup.writeAll(content);
 
-    var al = std.ArrayList(u8).fromOwnedSlice(allocator, modified);
-    errdefer al.deinit();
+    // Modify
+    var modified = try std.mem.replaceOwned(u8, allocator, content, "std.Build", "zat.Build");
+    modified = try std.mem.replaceOwned(u8, allocator, modified, "fn build", "fn buil_");
 
-    try al.writer().print(
+    // TODO: check zig version and adjust modifications
+    try fbuild_zig.seekTo(0);
+    try fbuild_zig.writer().print(
+        \\{s}
         \\
         \\//---------------------------------
         \\// Zig Audit Tool (ZAT)
         \\//---------------------------------
         \\
         \\{s}
+        \\{s}
     ,
-        .{build_string},
+        .{
+            modified,
+            if (std.mem.containsAtLeast(u8, content, 1, "build(b: *std.Build) !void")) build_try_function else build_function,
+            build_code,
+        },
     );
 
-    return try al.toOwnedSlice();
+    //var al = std.ArrayList(u8).fromOwnedSlice(allocator, modified);
+    //errdefer al.deinit();
+
+    //try al.writer().print(
+    //    \\
+    //    \\//---------------------------------
+    //    \\// Zig Audit Tool (ZAT)
+    //    \\//---------------------------------
+    //    \\
+    //    \\{s}
+    //    \\{s}
+    //,
+    //    .{ build_function, build_code },
+    //);
+
+    //return try al.toOwnedSlice();
 }
 
 test {
-    _ = Build;
+    _ = injected;
 }
