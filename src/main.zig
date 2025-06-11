@@ -20,7 +20,7 @@ pub fn main() !void {
         \\--audit                  Audit a package
         \\--release                Create a new release for a package
         \\--graph                  Create a dependency graph
-        \\--introspect
+        \\--inspect-build          Inspect the components defined by the build script
         \\--major                  Major release
         \\--minor                  Minor release
         \\--patch                  Patch release
@@ -50,8 +50,8 @@ pub fn main() !void {
         try root.cmd.graph.cmdGraph(allocator, arena, res.args);
     } else if (res.args.sbom != 0) {
         try root.cmd.sbom.cmdSbom(allocator, arena, res.args);
-    } else if (res.args.introspect != 0) {
-        try root.cmd.introspect.cmdIntrospect(allocator, arena, res.args);
+    } else if (res.args.@"inspect-build" != 0) {
+        try root.cmd.inspect_build.cmdIntrospect(allocator, arena, res.args);
     } else {
         try std.fmt.format(stdout.writer(), help_text, .{});
         return;
@@ -74,14 +74,10 @@ const help_text =
     \\ --graph                                     Create a dependency graph
     \\ --audit                                     Audit the given package
     \\ --sbom                                      Generate a SBOM for a package
+    \\ --inspect-build                             Inspect the components of the build script
     \\
     \\Options:
     \\ -y                                          Accept all
-    \\
-    \\Release Options
-    \\ --major                                     Create a major release
-    \\ --minor                                     Create a minor release
-    \\ --patch                                     Create a patch release
     \\
     \\Graph Options
     \\ --mermaid                                   Create a mermaid graph (supported by Github READMEs)
@@ -89,5 +85,6 @@ const help_text =
     \\
     \\SBOM Options
     \\ --cyclonedx-json                            Create a CycloneDX SBOM using the Json format (default)
+    \\
     \\
 ;

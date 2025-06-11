@@ -6,9 +6,9 @@ const fatal = process.fatal;
 
 const misc = @import("../misc.zig");
 
-const injected = @import("introspect/injected.zig");
+const injected = @import("inspect_build/injected.zig");
 
-const build_code = @embedFile("introspect/injected.zig");
+const build_code = @embedFile("inspect_build/injected.zig");
 
 pub fn cmdIntrospect(
     allocator: Allocator,
