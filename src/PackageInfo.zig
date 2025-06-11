@@ -6,6 +6,8 @@ const Advisory = @import("advisory").Advisory;
 pub const fetch = @import("PackageInfo/fetch.zig");
 pub const graph = @import("PackageInfo/src_graph.zig");
 
+pub const Components = @import("cmd/inspect_build/injected.zig").zat.Components;
+
 pub const PackageInfo = @This();
 
 /// Maps form `<fingerprint>@<version>` to a package info.
@@ -16,16 +18,21 @@ hash: []const u8,
 url: []const u8,
 fingerprint: u64,
 version: std.SemanticVersion,
-/// Child references via ref-tuple
+/// Child references via ref-tuple.
 children: std.ArrayList([]const u8),
 ref: []const u8,
 sversion: []const u8,
-components: std.ArrayList(Component),
+/// The detected components of a package.
+components: ?Components = null,
+/// The modules actually used by a component.
+/// NOTE: `components` and `used_modules` MUST have the same number of elements,
+/// with matching indices for corresponding component-module-relationships.
+used_modules: std.ArrayList(UsedModules),
 
-pub const Component = struct {
+pub const UsedModules = struct {
     name: []const u8,
     /// Modules detected via a static analysis of the AST of the given package.
-    modules: ?graph.Modules,
+    modules: ?graph.Modules = null,
 
     pub const AffectedFunctionResult = struct {
         file_name: []const u8,
@@ -167,8 +174,9 @@ pub fn deinit(self: *const @This(), allocator: Allocator) void {
     self.children.deinit();
     allocator.free(self.ref);
     allocator.free(self.sversion);
-    for (self.components.items) |comp| comp.deinit(allocator);
-    self.components.deinit();
+    if (self.components) |comps| comps.deinit(allocator);
+    for (self.used_modules.items) |comp| comp.deinit(allocator);
+    self.used_modules.deinit();
 }
 
 pub fn makeDepTreeStr(
@@ -227,7 +235,7 @@ pub fn makeDepTreeStr(
                             //std.debug.print("affected\n", .{});
                             if (affected.functions) |functions| {
                                 //std.debug.print("functions\n", .{});
-                                for (item.components.items) |comp| {
+                                for (item.used_modules.items) |comp| {
                                     //std.debug.print("{s}\n", .{comp.name});
                                     if (comp.affectedFunctionUsed(advisory.package, functions)) |used| {
                                         used_str = try std.fmt.allocPrint(

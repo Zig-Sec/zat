@@ -6,7 +6,7 @@ pub const zat = struct {
 
         pub const Component = struct {
             name: []const u8,
-            version: ?[]const u8,
+            version: ?[]const u8 = null,
             imports: []Component,
             type: Type,
             root_source_file: ?[]const u8 = null,
@@ -16,6 +16,13 @@ pub const zat = struct {
                 library,
                 executable,
             };
+
+            pub fn deinit(self: *const @This(), allocator: std_zat_.mem.Allocator) void {
+                allocator.free(self.name);
+                if (self.version) |v| allocator.free(v);
+                for (self.imports) |imp| imp.deinit(allocator);
+                if (self.root_source_file) |rsf| allocator.free(rsf);
+            }
 
             pub fn fromCompile(
                 allocator: std_zat_.mem.Allocator,
@@ -124,6 +131,11 @@ pub const zat = struct {
             }
 
             try c.append(rhs);
+        }
+
+        pub fn deinit(self: *const @This(), allocator: std_zat_.mem.Allocator) void {
+            for (self.components) |comp| comp.deinit(allocator);
+            allocator.free(self.components);
         }
     };
 };

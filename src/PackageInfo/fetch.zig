@@ -86,7 +86,7 @@ pub fn fetchPackageDependencies(
         .children = std.ArrayList([]const u8).init(allocator),
         .ref = ref,
         .sversion = v,
-        .components = std.ArrayList(PackageInfo.Component).init(allocator),
+        .used_modules = std.ArrayList(PackageInfo.UsedModules).init(allocator),
     };
     errdefer root_package.deinit(allocator);
 
@@ -108,12 +108,12 @@ pub fn fetchPackageDependencies(
     }
 
     // Try to prase build script
-    outer: {
-        _ = BuildScript.read(allocator, build_root.directory.handle) catch {
-            std.log.warn("unable to read build script for '{s}'", .{root_package.name});
-            break :outer;
-        };
-    }
+    //outer: {
+    //    _ = BuildScript.read(allocator, build_root.directory.handle) catch {
+    //        std.log.warn("unable to read build script for '{s}'", .{root_package.name});
+    //        break :outer;
+    //    };
+    //}
 
     // TODO: test code for parsing the source files
     outer: {
@@ -298,7 +298,7 @@ pub fn fetchDependency(
             .children = std.ArrayList([]const u8).init(allocator),
             .ref = ref,
             .sversion = v,
-            .components = std.ArrayList(PackageInfo.Component).init(allocator),
+            .used_modules = std.ArrayList(PackageInfo.UsedModules).init(allocator),
         };
 
         var node3 = node2.start("static analysis", 0);
@@ -366,7 +366,7 @@ pub fn resolveUsedModules(
         };
         errdefer mods.deinit();
 
-        try pi.components.append(.{
+        try pi.used_modules.append(.{
             .name = try allocator.dupe(u8, file_path),
             .modules = mods,
         });

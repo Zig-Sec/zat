@@ -22,11 +22,26 @@ pub fn cmdIntrospect(
         fatal("unable to determine build root ({any})", .{e});
     };
 
-    try readAndModifyBuildZig(build_root.directory.handle, allocator);
+    const comps = try inspect(build_root.directory.handle, allocator);
+    defer comps.deinit(allocator);
+
+    try std.json.stringify(
+        comps,
+        .{
+            .whitespace = .indent_2,
+            .emit_null_optional_fields = false,
+        },
+        std.io.getStdOut().writer(),
+    );
+    try std.io.getStdOut().writeAll("\n");
+}
+
+pub fn inspect(build_root: std.fs.Dir, allocator: Allocator) !injected.zat.Components {
+    try readAndModifyBuildZig(build_root, allocator);
 
     const info = std.process.Child.run(.{
         .allocator = allocator,
-        .cwd_dir = build_root.directory.handle,
+        .cwd_dir = build_root,
         .argv = &.{
             "zig",
             "build",
@@ -34,7 +49,7 @@ pub fn cmdIntrospect(
         },
     }) catch |e| {
         std.log.err("unable to execute 'zig build -h' ({any})", .{e});
-        restoreBuildZig(build_root.directory.handle, allocator) catch |e2| {
+        restoreBuildZig(build_root, allocator) catch |e2| {
             std.log.err("unable to restore 'build.zig' ({any})", .{e2});
             return e;
         };
@@ -48,23 +63,47 @@ pub fn cmdIntrospect(
     switch (info.term.Exited) {
         0 => {
             if (std.mem.indexOf(u8, info.stdout, "Usage")) |index| {
-                std.io.getStdOut().writer().print("{s}\n", .{info.stdout[0..index]}) catch {
-                    restoreBuildZig(build_root.directory.handle, allocator) catch |e| {
-                        std.log.err("unable to restore 'build.zig' ({any})", .{e});
+                const json = info.stdout[0..index];
+                const comps = std.json.parseFromSliceLeaky(
+                    injected.zat.Components,
+                    allocator,
+                    json,
+                    .{
+                        .allocate = .alloc_always,
+                    },
+                ) catch |e| {
+                    std.log.err("unable to parse json ({any})", .{e});
+                    restoreBuildZig(build_root, allocator) catch |e2| {
+                        std.log.err("unable to restore 'build.zig' ({any})", .{e2});
                         return e;
                     };
+                    return e;
                 };
+
+                restoreBuildZig(build_root, allocator) catch |e| {
+                    std.log.err("unable to restore 'build.zig' ({any})", .{e});
+                    return e;
+                };
+
+                return comps;
             }
         },
         else => {
-            std.log.err("'build.zig' introspection failed. This is probably due to a corrupted 'build.zig' which is the result of the modification made to the file.\nOriginal error:\n{s}", .{info.stderr[0..]});
+            std.log.err("'build.zig' inspection failed. This is probably due to a corrupted 'build.zig' which is the result of the modification made to the file.\nOriginal error:\n{s}", .{info.stderr[0..]});
+
+            restoreBuildZig(build_root, allocator) catch |e| {
+                std.log.err("unable to restore 'build.zig' ({any})", .{e});
+                return e;
+            };
         },
     }
 
-    restoreBuildZig(build_root.directory.handle, allocator) catch |e| {
+    restoreBuildZig(build_root, allocator) catch |e| {
         std.log.err("unable to restore 'build.zig' ({any})", .{e});
         return e;
     };
+
+    return error.Inspection;
 }
 
 fn restoreBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {

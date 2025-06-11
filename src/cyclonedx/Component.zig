@@ -34,6 +34,11 @@ purl: ?[]const u8 = null,
 /// that may be relevant but are not included with the BOM. They may also establish
 /// specific relationships within or external to the BOM.
 externalReferences: ?[]const ExternalReference = null,
+/// A list of software and hardware components included in the parent component.
+/// This is not a dependency tree. It provides a way to specify a hierarchical
+/// representation of component assemblies, similar to system → subsystem → parts assembly
+/// in physical supply chains.
+components: ?[]const @This() = null,
 
 pub const Type = enum {
     application,
@@ -61,5 +66,9 @@ pub fn deinit(self: *const @This(), allocator: Allocator) void {
     if (self.externalReferences) |refs| {
         for (refs) |ref| ref.deinit(allocator);
         allocator.free(refs);
+    }
+    if (self.components) |comps| {
+        for (comps) |comp| comp.deinit(allocator);
+        allocator.free(comps);
     }
 }
