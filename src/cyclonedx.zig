@@ -125,6 +125,14 @@ pub fn componentFromPackageInfo(
         try dependency.addDependency(dep.ref, allocator);
     }
 
+    // Set properties
+    var properties = std.ArrayList(Component.Property).init(allocator);
+    defer if (properties.items.len == 0) properties.deinit();
+
+    if (pi.hash.len > 0) {
+        try properties.append(try Component.Property.newPackageHash(pi.hash, allocator));
+    }
+
     return .{
         .{
             .type = if (t) |t_| t_ else .application,
@@ -133,6 +141,7 @@ pub fn componentFromPackageInfo(
             .version = try allocator.dupe(u8, pi.sversion),
             .purl = purl,
             .externalReferences = if (extrefs.len == 0) null else extrefs,
+            .properties = if (properties.items.len == 0) null else try properties.toOwnedSlice(),
         },
         dependency,
     };

@@ -39,6 +39,47 @@ externalReferences: ?[]const ExternalReference = null,
 /// representation of component assemblies, similar to system → subsystem → parts assembly
 /// in physical supply chains.
 components: ?[]const @This() = null,
+/// Provides the ability to document properties in a name-value store. This
+/// provides flexibility to include data not officially supported in the
+/// standard without having to use additional namespaces or create extensions.
+/// Unlike key-value stores, properties support duplicate names, each potentially
+/// having different values. Property names of interest to the general public are
+/// encouraged to be registered in the CycloneDX Property Taxonomy. Formal
+/// registration is optional.
+properties: ?[]const Property = null,
+
+/// Provides the ability to document properties in a name-value store.
+/// This provides flexibility to include data not officially supported
+/// in the standard without having to use additional namespaces or create
+/// extensions. Unlike key-value stores, properties support duplicate names,
+/// each potentially having different values. Property names of interest to
+/// the general public are encouraged to be registered in the CycloneDX
+/// Property Taxonomy. Formal registration is optional.
+pub const Property = struct {
+    /// The name of the property. Duplicate names are allowed, each potentially
+    /// having a different value.
+    name: []const u8,
+    /// The value of the property.
+    value: ?[]const u8,
+
+    pub fn deinit(self: *const @This(), allocator: Allocator) void {
+        allocator.free(self.name);
+        if (self.value) |v| allocator.free(v);
+    }
+
+    pub fn newPackageHash(hash: []const u8, allocator: Allocator) !@This() {
+        const name = try allocator.dupe(u8, "zig:package_hash");
+        errdefer allocator.free(name);
+
+        const value = try allocator.dupe(u8, hash);
+        errdefer allocator.free(value);
+
+        return .{
+            .name = name,
+            .value = value,
+        };
+    }
+};
 
 pub const Type = enum {
     application,
@@ -70,5 +111,9 @@ pub fn deinit(self: *const @This(), allocator: Allocator) void {
     if (self.components) |comps| {
         for (comps) |comp| comp.deinit(allocator);
         allocator.free(comps);
+    }
+    if (self.properties) |props| {
+        for (props) |prop| prop.deinit(allocator);
+        allocator.free(props);
     }
 }
