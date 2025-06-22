@@ -23,6 +23,8 @@ const src_graph = @import("src_graph.zig");
 
 const BuildScript = @import("../BuildScript.zig");
 
+const cmd = @import("../cmd.zig");
+
 pub fn fetchPackageDependencies(
     allocator: Allocator,
     arena: Allocator,
@@ -107,22 +109,33 @@ pub fn fetchPackageDependencies(
         }
     }
 
-    // Try to prase build script
-    //outer: {
-    //    _ = BuildScript.read(allocator, build_root.directory.handle) catch {
-    //        std.log.warn("unable to read build script for '{s}'", .{root_package.name});
-    //        break :outer;
-    //    };
-    //}
+    // Try to inspect the build graph to get more detailed infromation
+    // about the given package.
+    var inspect_build_node = fetch_node.start("inspecting build", 0);
+    outer: {
+        root_package.components = cmd.inspect_build.inspect(build_root.directory.handle, allocator) catch break :outer;
+    }
+    inspect_build_node.end();
 
     // TODO: test code for parsing the source files
-    outer: {
-        const dir = build_root.directory.handle.openDir("src", .{}) catch break :outer;
+    var inspect_rsf_node = fetch_node.start("analyzing root source files", 0);
+    if (root_package.components) |comps| {
+        for (comps.components) |comp| {
+            if (comp.root_source_file) |rsf| {
+                const mods = src_graph.getUsedModules(allocator, build_root.directory.handle, rsf) catch |e| {
+                    std.log.warn("failed to check modules for '{s}' ({any})", .{ rsf, e });
+                    continue;
+                };
+                errdefer mods.deinit();
 
-        resolveUsedModules(allocator, dir, &.{ "root.zig", "main.zig" }, &root_package) catch {
-            break :outer;
-        };
+                try root_package.used_modules.append(.{
+                    .name = try allocator.dupe(u8, comp.name),
+                    .modules = mods,
+                });
+            }
+        }
     }
+    inspect_rsf_node.end();
 
     // +++++++++++++++++++++++++++++++++++++++
     // Infos about its dependencies

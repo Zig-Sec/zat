@@ -67,6 +67,19 @@ pub const Property = struct {
         if (self.value) |v| allocator.free(v);
     }
 
+    pub fn newRootSourceFile(fname: []const u8, allocator: Allocator) !@This() {
+        const name = try allocator.dupe(u8, "zig:root_source_file");
+        errdefer allocator.free(name);
+
+        const value = try allocator.dupe(u8, fname);
+        errdefer allocator.free(value);
+
+        return .{
+            .name = name,
+            .value = value,
+        };
+    }
+
     pub fn newPackageHash(hash: []const u8, allocator: Allocator) !@This() {
         const name = try allocator.dupe(u8, "zig:package_hash");
         errdefer allocator.free(name);

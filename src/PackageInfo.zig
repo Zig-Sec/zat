@@ -25,8 +25,7 @@ sversion: []const u8,
 /// The detected components of a package.
 components: ?Components = null,
 /// The modules actually used by a component.
-/// NOTE: `components` and `used_modules` MUST have the same number of elements,
-/// with matching indices for corresponding component-module-relationships.
+/// The used_modules map to the components by name.
 used_modules: std.ArrayList(UsedModules),
 
 pub const UsedModules = struct {

@@ -133,6 +133,51 @@ pub fn componentFromPackageInfo(
         try properties.append(try Component.Property.newPackageHash(pi.hash, allocator));
     }
 
+    // Translate Package-Components
+    var components: ?std.ArrayList(Component) = null;
+    if (pi.components) |comps| {
+        components = .init(allocator);
+        errdefer {
+            for (components.?.items) |comp| comp.deinit(allocator);
+            components.?.deinit();
+        }
+
+        for (comps.components) |comp| {
+            const prefix = switch (comp.type) {
+                .module => "mod",
+                .library => "lib",
+                .executable => "exe",
+            };
+
+            const bom_ref = try std.fmt.allocPrint(allocator, "{s}:{s}{s}{s}", .{ prefix, comp.name, if (comp.version) |_| "@" else "", if (comp.version) |v| v else "" });
+            errdefer allocator.free(bom_ref);
+
+            const n = try allocator.dupe(u8, comp.name);
+            errdefer allocator.free(n);
+
+            const v = if (comp.version) |v| try allocator.dupe(u8, v) else null;
+            errdefer if (v) |v_| allocator.free(v_);
+
+            var component = Component{
+                .type = switch (comp.type) {
+                    .module, .library => .library,
+                    .executable => .application,
+                },
+                .@"bom-ref" = bom_ref,
+                .name = n,
+                .version = v,
+            };
+
+            if (comp.root_source_file) |rsf| {
+                var p = try allocator.alloc(Component.Property, 1);
+                p[0] = try Component.Property.newRootSourceFile(rsf, allocator);
+                component.properties = p;
+            }
+
+            try components.?.append(component);
+        }
+    }
+
     return .{
         .{
             .type = if (t) |t_| t_ else .application,
@@ -142,6 +187,7 @@ pub fn componentFromPackageInfo(
             .purl = purl,
             .externalReferences = if (extrefs.len == 0) null else extrefs,
             .properties = if (properties.items.len == 0) null else try properties.toOwnedSlice(),
+            .components = if (components) |*comps| try comps.toOwnedSlice() else null,
         },
         dependency,
     };
