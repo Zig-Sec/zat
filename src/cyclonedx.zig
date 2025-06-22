@@ -92,28 +92,6 @@ pub fn componentFromPackageInfo(
     const name = try allocator.dupe(u8, pi.name);
     errdefer allocator.free(name);
 
-    const version = try std.fmt.allocPrint(
-        allocator,
-        "{d}.{d}.{d}{s}{s}{s}{s}",
-        .{
-            pi.version.major,
-            pi.version.minor,
-            pi.version.patch,
-            if (pi.version.pre) |_| "-" else "",
-            if (pi.version.pre) |pre| pre else "",
-            if (pi.version.build) |_| "+" else "",
-            if (pi.version.build) |build| build else "",
-        },
-    );
-    errdefer allocator.free(version);
-
-    const bomref = try std.fmt.allocPrint(
-        allocator,
-        "{s}:{x}@{s}",
-        .{ pi.name, pi.fingerprint, version },
-    );
-    errdefer allocator.free(bomref);
-
     var extrefs = try allocator.alloc(ExternalReference, 0);
     errdefer allocator.free(extrefs);
 
@@ -122,7 +100,7 @@ pub fn componentFromPackageInfo(
     if (!std.mem.eql(u8, "", pi.url)) {
         // Define purl based on url
         // TODO: currently only works with git
-        purl = purlFromUrl(pi.url, allocator, version) catch null;
+        purl = purlFromUrl(pi.url, allocator, pi.sversion) catch null;
 
         // Add external reference to the package
         const l = extrefs.len;
@@ -139,32 +117,20 @@ pub fn componentFromPackageInfo(
     }
 
     // Create Dependency for package
-    var dependency = try Dependency.new(bomref, allocator);
+    var dependency = try Dependency.new(pi.ref, allocator);
     errdefer dependency.deinit(allocator);
 
     for (pi.children.items) |dep_fp| {
         const dep = map.get(dep_fp).?;
-
-        const dep_version = try PackageInfo.allocVersion(dep.version, allocator);
-        defer allocator.free(dep_version);
-
-        const dep_ref = try PackageInfo.allocReference(
-            dep.name,
-            dep.fingerprint,
-            dep_version,
-            allocator,
-        );
-        defer allocator.free(dep_ref);
-
-        try dependency.addDependency(dep_ref, allocator);
+        try dependency.addDependency(dep.ref, allocator);
     }
 
     return .{
         .{
             .type = if (t) |t_| t_ else .application,
-            .@"bom-ref" = bomref,
+            .@"bom-ref" = try allocator.dupe(u8, pi.ref),
             .name = name,
-            .version = version,
+            .version = try allocator.dupe(u8, pi.sversion),
             .purl = purl,
             .externalReferences = if (extrefs.len == 0) null else extrefs,
         },
