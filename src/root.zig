@@ -9,6 +9,8 @@ pub const Package = @import("Package.zig");
 
 pub const BuildScript = @import("BuildScript.zig");
 
+pub const SpdxLicense = @import("SpdxLicense.zig");
+
 /// Command line tool commands
 pub const cmd = @import("cmd.zig");
 
@@ -17,4 +19,5 @@ test "root tests" {
     _ = release;
     _ = Package;
     _ = cmd;
+    _ = SpdxLicense;
 }
