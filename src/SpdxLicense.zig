@@ -85,6 +85,7 @@ pub const Tree = struct {
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *const @This()) void {
+        self.allocator.free(self.source);
         self.tokens.deinit();
         self.root_node.deinit(self.allocator);
         self.allocator.destroy(self.root_node);
@@ -288,7 +289,7 @@ pub const Tree = struct {
         const root_node = try parse_expression(s, tokens, a);
 
         return .{
-            .source = s,
+            .source = try a.dupe(u8, s),
             .tokens = tokens,
             .root_node = root_node,
             .allocator = a,
