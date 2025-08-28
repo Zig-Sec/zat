@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const fs = std.fs;
 const process = std.process;
@@ -8,22 +9,12 @@ const Ast = std.zig.Ast;
 const ThreadPool = std.Thread.Pool;
 const Directory = std.Build.Cache.Directory;
 
-const PackageInfo = @import("../PackageInfo.zig");
-const DepMap = PackageInfo.PackageInfoMap;
+const PackageInfo = @import("PackageInfo.zig");
+const DepMap = PackageInfo.Map;
 
-const misc = @import("../misc.zig");
+const InspectBuild = @import("InspectBuild.zig");
 
-const git = @import("../git.zig");
-
-const builtin = @import("builtin");
-
-const Package = @import("../Package.zig");
-
-const src_graph = @import("src_graph.zig");
-
-const BuildScript = @import("../BuildScript.zig");
-
-const cmd = @import("../cmd.zig");
+const misc = @import("misc.zig");
 
 pub fn fetchPackageDependencies(
     allocator: Allocator,
@@ -61,12 +52,12 @@ pub fn fetchPackageDependencies(
         dep_map.deinit();
     }
 
-    var dependencies = std.ArrayList([]const u8).init(allocator);
-    defer dependencies.deinit();
+    var dependencies: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer dependencies.deinit(allocator);
 
     var deps_iter = manifest.dependencies.iterator();
     while (deps_iter.next()) |dep| {
-        try dependencies.append(dep.value_ptr.location.url);
+        try dependencies.append(allocator, dep.value_ptr.location.url);
     }
 
     // +++++++++++++++++++++++++++++++++++++++
@@ -85,57 +76,28 @@ pub fn fetchPackageDependencies(
         .url = try allocator.dupe(u8, ""),
         .fingerprint = fp,
         .version = manifest.version,
-        .children = std.ArrayList([]const u8).init(allocator),
+        .children = .empty,
         .ref = ref,
         .sversion = v,
-        .used_modules = std.ArrayList(PackageInfo.UsedModules).init(allocator),
     };
     errdefer root_package.deinit(allocator);
-
-    // Try to get more information...
-    {
-        // Parse the Git config (if it exists)
-        // TODO: the package uri might get added to `build.zig.zon` together with the version: https://github.com/ziglang/zig/issues/23816
-        const git_config = git.GitConfig.load(allocator) catch |e| blk: {
-            std.log.warn("unable to load Git config ({any})", .{e});
-            break :blk null;
-        };
-        if (git_config) |conf| {
-            if (conf.remote_origin.url) |url| {
-                root_package.url = try allocator.dupe(u8, url);
-            }
-
-            conf.deinit();
-        }
-    }
 
     // Try to inspect the build graph to get more detailed infromation
     // about the given package.
     var inspect_build_node = fetch_node.start("inspecting build", 0);
     outer: {
-        root_package.components = cmd.inspect_build.inspect(build_root.directory.handle, allocator) catch break :outer;
+        root_package.components = InspectBuild.inspect(build_root.directory.handle, allocator) catch |e| {
+            std.log.err(
+                "inspecting the `build.zig` of package `{s}` failed.\nReason: {any}",
+                .{
+                    manifest.name,
+                    e,
+                },
+            );
+            break :outer;
+        };
     }
     inspect_build_node.end();
-
-    // TODO: test code for parsing the source files
-    var inspect_rsf_node = fetch_node.start("analyzing root source files", 0);
-    if (root_package.components) |comps| {
-        for (comps.components) |comp| {
-            if (comp.root_source_file) |rsf| {
-                const mods = src_graph.getUsedModules(allocator, build_root.directory.handle, rsf) catch |e| {
-                    std.log.warn("failed to check modules for '{s}' ({any})", .{ rsf, e });
-                    continue;
-                };
-                errdefer mods.deinit();
-
-                try root_package.used_modules.append(.{
-                    .name = try allocator.dupe(u8, comp.name),
-                    .modules = mods,
-                });
-            }
-        }
-    }
-    inspect_rsf_node.end();
 
     // +++++++++++++++++++++++++++++++++++++++
     // Infos about its dependencies
@@ -235,7 +197,7 @@ pub fn fetchDependency(
     };
     defer global_cache_directory.closeAndFree(allocator);
 
-    var job_queue: Package.Fetch.JobQueue = .{
+    var job_queue: PackageInfo.Package.Fetch.JobQueue = .{
         .http_client = &http_client,
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
@@ -243,14 +205,15 @@ pub fn fetchDependency(
         .read_only = false,
         .debug_hash = false,
         .work_around_btrfs_bug = work_around_btrfs_bug,
+        .mode = .all,
     };
     defer job_queue.deinit();
 
-    var fetch: Package.Fetch = .{
+    var fetch: PackageInfo.Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(allocator),
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
-        .hash_tok = 0,
+        .hash_tok = .fromToken(0),
         .name_tok = 0,
         .lazy_status = .eager,
         .parent_package_root = undefined,
@@ -287,8 +250,8 @@ pub fn fetchDependency(
         process.exit(1);
     }
 
-    var child_deps = std.ArrayList([]const u8).init(allocator);
-    errdefer child_deps.deinit();
+    var child_deps: std.ArrayListUnmanaged([]const u8) = .empty;
+    errdefer child_deps.deinit(allocator);
 
     if (fetch.manifest) |manifest| {
         const fp = genFingerprint(manifest.name, manifest.id);
@@ -299,38 +262,26 @@ pub fn fetchDependency(
 
         var children_iter = manifest.dependencies.iterator();
         while (children_iter.next()) |child| {
-            try child_deps.append(try allocator.dupe(u8, child.value_ptr.location.url));
+            try child_deps.append(allocator, try allocator.dupe(u8, child.value_ptr.location.url));
         }
 
-        var pi = PackageInfo{
+        const pi = PackageInfo{
             .name = try allocator.dupe(u8, manifest.name),
             .hash = try allocator.dupe(u8, fetch.computedPackageHash().toSlice()),
             .url = try allocator.dupe(u8, path_or_url),
             .fingerprint = fp,
             .version = manifest.version,
-            .children = std.ArrayList([]const u8).init(allocator),
+            .children = .empty,
             .ref = ref,
             .sversion = v,
-            .used_modules = std.ArrayList(PackageInfo.UsedModules).init(allocator),
         };
 
-        var node3 = node2.start("static analysis", 0);
-        // TODO: test code for parsing the source files
-        outer: {
-            const dir = fetch.package_root.root_dir.handle.openDir("src", .{}) catch break :outer;
-
-            resolveUsedModules(allocator, dir, &.{ "root.zig", "main.zig" }, &pi) catch {
-                break :outer;
-            };
-        }
-        node3.end();
-
         // Connect the package to the parent
-        if (parent) |p| try p.children.append(try allocator.dupe(u8, ref));
+        if (parent) |p| try p.children.append(allocator, try allocator.dupe(u8, ref));
 
         return .{
             pi,
-            try child_deps.toOwnedSlice(),
+            try child_deps.toOwnedSlice(allocator),
         };
     }
 
@@ -362,26 +313,4 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
 
 pub fn genFingerprint(name: []const u8, id: u32) u64 {
     return @as(u64, @intCast(std.hash.Crc32.hash(name))) << 32 | id;
-}
-
-/// Statically analyze the AST beginning from a root source file and determine used
-/// modules.
-pub fn resolveUsedModules(
-    allocator: Allocator,
-    dir: std.fs.Dir,
-    root_source_files: []const []const u8,
-    pi: *PackageInfo,
-) !void {
-    for (root_source_files) |file_path| {
-        const mods = src_graph.getUsedModules(allocator, dir, file_path) catch |e| {
-            std.log.warn("failed to check modules for '{s}' ({any})", .{ file_path, e });
-            continue;
-        };
-        errdefer mods.deinit();
-
-        try pi.used_modules.append(.{
-            .name = try allocator.dupe(u8, file_path),
-            .modules = mods,
-        });
-    }
 }

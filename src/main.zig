@@ -3,9 +3,17 @@ const clap = @import("clap");
 
 const root = @import("root.zig");
 
-const stdin = std.io.getStdIn();
-const stdout = std.io.getStdOut();
-const stderr = std.io.getStdErr();
+var stdout_buffer: [1024]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+const stdout = &stdout_writer.interface;
+
+var stderr_buffer: [1024]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+const stderr = &stderr_writer.interface;
+
+var stdin_buffer: [1024]u8 = undefined;
+const stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+const stdin = stdin_reader.interface;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -37,25 +45,40 @@ pub fn main() !void {
         .diagnostic = &diag,
         .allocator = allocator,
     }) catch |err| {
-        diag.report(std.io.getStdErr().writer(), err) catch {};
+        diag.report(stderr, err) catch {};
         return;
     };
     defer res.deinit();
 
     if (res.args.audit != 0) {
-        try root.cmd.audit.cmdAudit(allocator, arena, res.args);
+        //try root.cmd.audit.cmdAudit(allocator, arena, res.args);
     } else if (res.args.release != 0) {
-        try root.release.cmdNewRelease(allocator, arena, res.args);
+        //try root.release.cmdNewRelease(allocator, arena, res.args);
     } else if (res.args.graph != 0) {
-        try root.cmd.graph.cmdGraph(allocator, arena, res.args);
+        try root.cmd.graph.cmdGraph(
+            allocator,
+            arena,
+            res.args,
+            stdout,
+            stderr,
+        );
     } else if (res.args.sbom != 0) {
-        try root.cmd.sbom.cmdSbom(allocator, arena, res.args);
+        try root.cmd.sbom.cmdSbom(
+            allocator,
+            arena,
+            res.args,
+            stdout,
+            stderr,
+        );
     } else if (res.args.@"inspect-build" != 0) {
-        try root.cmd.inspect_build.cmdIntrospect(allocator, arena, res.args);
+        //try root.cmd.inspect_build.cmdIntrospect(allocator, arena, res.args);
     } else {
-        try std.fmt.format(stdout.writer(), help_text, .{});
+        try stdout.print(help_text, .{});
         return;
     }
+
+    try stdout.flush();
+    try stderr.flush();
 }
 
 const help_text =

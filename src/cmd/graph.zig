@@ -1,8 +1,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const Fetch = @import("../Fetch.zig");
 const PackageInfo = @import("../PackageInfo.zig");
-const DepMap = PackageInfo.PackageInfoMap;
+const DepMap = PackageInfo.Map;
 
 const misc = @import("../misc.zig");
 
@@ -14,9 +15,14 @@ pub fn cmdGraph(
     allocator: Allocator,
     arena: Allocator,
     args: anytype,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
 ) !void {
+    _ = stderr;
+
     var f: ?std.fs.File = null;
     defer if (f) |f_| f_.close();
+    var fw: ?std.fs.File.Writer = null;
 
     var root_prog_node = std.Progress.start(.{
         .root_name = "generate graph",
@@ -24,12 +30,13 @@ pub fn cmdGraph(
 
     var writer = if (args.path) |path| blk: {
         f = try misc.createFile(path, .{});
-        break :blk f.?.writer();
+        fw = f.?.writer(&.{});
+        break :blk &fw.?.interface;
     } else blk: {
-        break :blk std.io.getStdOut().writer();
+        break :blk stdout;
     };
 
-    const root, var map = try PackageInfo.fetch.fetchPackageDependencies(
+    const root, var map = try Fetch.fetchPackageDependencies(
         allocator,
         arena,
         root_prog_node,
@@ -60,9 +67,9 @@ pub fn cmdGraph(
                 try dep.value_ptr.printMermaid(writer);
 
                 for (dep.value_ptr.children.items) |child| {
-                    try writer.print("    {s} --> {s}\n", .{
-                        std.fmt.fmtSliceHexLower(&dep.value_ptr.sha256HashFromRef()),
-                        std.fmt.fmtSliceHexLower(&PackageInfo.hashFromRef(child)),
+                    try writer.print("    {x} --> {x}\n", .{
+                        &dep.value_ptr.sha256HashFromRef(),
+                        &PackageInfo.hashFromRef(child),
                     });
                 }
             }

@@ -1,40 +1,11 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const fs = std.fs;
-const process = std.process;
-const fatal = process.fatal;
+const Allocator = std.mem.Allocator;
 
-const misc = @import("../misc.zig");
+pub const injected = @import("InspectBuild/injected.zig");
 
-const injected = @import("inspect_build/injected.zig");
-
-const build_code = @embedFile("inspect_build/injected.zig");
-
-pub fn cmdIntrospect(
-    allocator: Allocator,
-    arena: Allocator,
-    args: anytype,
-) !void {
-    _ = arena;
-    _ = args;
-
-    const build_root = misc.findBuildRoot(allocator, .{}) catch |e| {
-        fatal("unable to determine build root ({any})", .{e});
-    };
-
-    const comps = try inspect(build_root.directory.handle, allocator);
-    defer comps.deinit(allocator);
-
-    try std.json.stringify(
-        comps,
-        .{
-            .whitespace = .indent_2,
-            .emit_null_optional_fields = false,
-        },
-        std.io.getStdOut().writer(),
-    );
-    try std.io.getStdOut().writeAll("\n");
-}
+/// The code to be injected into a `build.zig` as raw string.
+const injectable_code = @embedFile("InspectBuild/injected.zig");
 
 pub fn inspect(build_root: std.fs.Dir, allocator: Allocator) !injected.zat.Components {
     try readAndModifyBuildZig(build_root, allocator);
@@ -130,12 +101,16 @@ fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
     try backup.writeAll(content);
 
     // Modify
-    const modified = try std.mem.replaceOwned(u8, allocator, content, "fn build", "fn buil_");
+    const modified = try std.mem.replaceOwned(u8, allocator, content, "fn build(", "fn buil_(");
 
     const fun_opening = "pub fn build(b: *std.Build) !void {";
     const fun_closing =
+        \\    var zat_stdout_buffer: [1024]u8 = undefined;
+        \\    var zat_stdout_writer = std_zat_.fs.File.stdout().writer(&zat_stdout_buffer);
+        \\    const zat_stdout = &zat_stdout_writer.interface;
+        \\
         \\    const components = try zat.Components.fromBuild(b);
-        \\    const comp_json = try std_zat_.json.stringifyAlloc(
+        \\    const comp_json = try std_zat_.json.Stringify.valueAlloc(
         \\        b.allocator,
         \\        components,
         \\        .{
@@ -143,14 +118,15 @@ fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
         \\            .emit_null_optional_fields = false,
         \\        },
         \\    );
-        \\    try std_zat_.io.getStdOut().writeAll(comp_json);
-        \\    try std_zat_.io.getStdOut().writeAll("\n");
+        \\    try zat_stdout.writeAll(comp_json);
+        \\    try zat_stdout.writeAll("\n");
         \\}
     ;
 
     // TODO: check zig version and adjust modifications
     try fbuild_zig.seekTo(0);
-    try fbuild_zig.writer().print(
+    var w = fbuild_zig.writer(&.{});
+    try w.interface.print(
         \\{s}
         \\
         \\//---------------------------------
@@ -168,26 +144,9 @@ fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
             fun_opening,
             if (std.mem.containsAtLeast(u8, content, 1, "build(b: *std.Build) !void")) "try buil_(b);" else "buil_(b);",
             fun_closing,
-            build_code,
+            injectable_code,
         },
     );
-
-    //var al = std.ArrayList(u8).fromOwnedSlice(allocator, modified);
-    //errdefer al.deinit();
-
-    //try al.writer().print(
-    //    \\
-    //    \\//---------------------------------
-    //    \\// Zig Audit Tool (ZAT)
-    //    \\//---------------------------------
-    //    \\
-    //    \\{s}
-    //    \\{s}
-    //,
-    //    .{ build_function, build_code },
-    //);
-
-    //return try al.toOwnedSlice();
 }
 
 test {

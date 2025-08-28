@@ -85,7 +85,7 @@ pub const SBOM = struct {
 pub fn componentFromPackageInfo(
     allocator: Allocator,
     pi: *const PackageInfo,
-    map: *const PackageInfo.PackageInfoMap,
+    map: *const PackageInfo.Map,
     t: ?Component.Type,
 ) !struct { Component, Dependency } {
     // Make Component for Package
@@ -126,20 +126,19 @@ pub fn componentFromPackageInfo(
     }
 
     // Set properties
-    var properties = std.ArrayList(Component.Property).init(allocator);
-    defer if (properties.items.len == 0) properties.deinit();
+    var properties: std.ArrayListUnmanaged(Component.Property) = .empty;
+    defer if (properties.items.len == 0) properties.deinit(allocator);
 
     if (pi.hash.len > 0) {
-        try properties.append(try Component.Property.newPackageHash(pi.hash, allocator));
+        try properties.append(allocator, try Component.Property.newPackageHash(pi.hash, allocator));
     }
 
     // Translate Package-Components
-    var components: ?std.ArrayList(Component) = null;
+    var components: std.ArrayListUnmanaged(Component) = .empty;
     if (pi.components) |comps| {
-        components = .init(allocator);
         errdefer {
-            for (components.?.items) |comp| comp.deinit(allocator);
-            components.?.deinit();
+            for (components.items) |comp| comp.deinit(allocator);
+            components.deinit(allocator);
         }
 
         for (comps.components) |comp| {
@@ -174,7 +173,7 @@ pub fn componentFromPackageInfo(
                 component.properties = p;
             }
 
-            try components.?.append(component);
+            try components.append(allocator, component);
         }
     }
 
@@ -186,8 +185,8 @@ pub fn componentFromPackageInfo(
             .version = try allocator.dupe(u8, pi.sversion),
             .purl = purl,
             .externalReferences = if (extrefs.len == 0) null else extrefs,
-            .properties = if (properties.items.len == 0) null else try properties.toOwnedSlice(),
-            .components = if (components) |*comps| try comps.toOwnedSlice() else null,
+            .properties = if (properties.items.len == 0) null else try properties.toOwnedSlice(allocator),
+            .components = if (components.items.len == 0) null else try components.toOwnedSlice(allocator),
         },
         dependency,
     };

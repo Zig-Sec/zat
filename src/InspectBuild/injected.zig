@@ -28,11 +28,11 @@ pub const zat = struct {
                 allocator: std_zat_.mem.Allocator,
                 cs: *const std_zat_.Build.Step.Compile,
             ) !Component {
-                var imports = std_zat_.ArrayList(Component).init(allocator);
+                var imports: std_zat_.ArrayListUnmanaged(Component) = .empty;
 
                 var iter = cs.root_module.import_table.iterator();
                 while (iter.next()) |kv| {
-                    try imports.append(.{
+                    try imports.append(allocator, .{
                         .name = try allocator.dupe(u8, kv.key_ptr.*),
                         .version = null, // modules don't have a version right now...
                         .imports = &.{},
@@ -61,7 +61,7 @@ pub const zat = struct {
                         else => .library,
                     },
                     .root_source_file = if (cs.root_module.root_source_file) |rsf| try allocator.dupe(u8, rsf.getDisplayName()) else null,
-                    .imports = try imports.toOwnedSlice(),
+                    .imports = try imports.toOwnedSlice(allocator),
                 };
             }
 
@@ -70,11 +70,11 @@ pub const zat = struct {
                 allocator: std_zat_.mem.Allocator,
                 mod: *const std_zat_.Build.Module,
             ) !Component {
-                var imports = std_zat_.ArrayList(Component).init(allocator);
+                var imports: std_zat_.ArrayListUnmanaged(Component) = .empty;
 
                 var iter = mod.import_table.iterator();
                 while (iter.next()) |kv| {
-                    try imports.append(.{
+                    try imports.append(allocator, .{
                         .name = try allocator.dupe(u8, kv.key_ptr.*),
                         .version = null, // modules don't have a version right now...
                         .imports = &.{},
@@ -86,18 +86,18 @@ pub const zat = struct {
                     .name = try allocator.dupe(u8, name),
                     .version = null,
                     .type = .module,
-                    .imports = try imports.toOwnedSlice(),
+                    .imports = try imports.toOwnedSlice(allocator),
                     .root_source_file = if (mod.root_source_file) |rsf| try allocator.dupe(u8, rsf.getDisplayName()) else null,
                 };
             }
         };
 
         pub fn fromBuild(b: *const std_zat_.Build) !@This() {
-            var components = std_zat_.ArrayList(Component).init(b.allocator);
+            var components: std_zat_.ArrayListUnmanaged(Component) = .empty;
 
             var mod_iter = b.modules.iterator();
             while (mod_iter.next()) |kv| {
-                try components.append(try Component.fromModule(kv.key_ptr.*, b.allocator, kv.value_ptr.*));
+                try components.append(b.allocator, try Component.fromModule(kv.key_ptr.*, b.allocator, kv.value_ptr.*));
             }
 
             var step_iter = b.top_level_steps.iterator();
@@ -106,15 +106,15 @@ pub const zat = struct {
             }
 
             return .{
-                .components = try components.toOwnedSlice(),
+                .components = try components.toOwnedSlice(b.allocator),
             };
         }
 
-        fn findCompiles(c: *std_zat_.ArrayList(Component), s: *std_zat_.Build.Step, a: std_zat_.mem.Allocator) !void {
+        fn findCompiles(c: *std_zat_.ArrayListUnmanaged(Component), s: *std_zat_.Build.Step, a: std_zat_.mem.Allocator) !void {
             switch (s.id) {
                 .compile => {
                     const cs = s.cast(std_zat_.Build.Step.Compile).?;
-                    try addIfNotPresent(c, try Component.fromCompile(a, cs));
+                    try addIfNotPresent(c, try Component.fromCompile(a, cs), a);
                 },
                 else => {},
             }
@@ -124,13 +124,13 @@ pub const zat = struct {
             }
         }
 
-        fn addIfNotPresent(c: *std_zat_.ArrayList(Component), rhs: Component) !void {
+        fn addIfNotPresent(c: *std_zat_.ArrayListUnmanaged(Component), rhs: Component, a: std_zat_.mem.Allocator) !void {
             for (c.items) |lhs| {
                 // Check if rhs already exists
                 if (std_zat_.mem.eql(u8, lhs.name, rhs.name) and lhs.type == rhs.type) return;
             }
 
-            try c.append(rhs);
+            try c.append(a, rhs);
         }
 
         pub fn deinit(self: *const @This(), allocator: std_zat_.mem.Allocator) void {

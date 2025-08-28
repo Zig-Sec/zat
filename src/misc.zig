@@ -6,7 +6,7 @@ const process = std.process;
 const fatal = process.fatal;
 const Color = std.zig.Color;
 const Ast = std.zig.Ast;
-const Package = @import("Package.zig");
+const Package = @import("PackageInfo.zig").Package;
 
 pub const BuildRoot = struct {
     directory: Cache.Directory,
@@ -102,7 +102,7 @@ pub fn loadManifest(
             Package.Manifest.basename,
             Package.Manifest.max_bytes,
             null,
-            1,
+            .@"1",
             0,
         ) catch |err| {
             fatal("unable to load {s}: {s}", .{

@@ -5,6 +5,8 @@ const fatal = std.process.fatal;
 const PackageInfo = @import("../PackageInfo.zig");
 const DepMap = PackageInfo.PackageInfoMap;
 
+const Fetch = @import("../Fetch.zig");
+
 const misc = @import("../misc.zig");
 
 const cyclonedx = @import("../cyclonedx.zig");
@@ -19,22 +21,28 @@ pub fn cmdSbom(
     allocator: Allocator,
     arena: Allocator,
     args: anytype,
+    stdout: *std.Io.Writer,
+    stderr: *std.Io.Writer,
 ) !void {
+    _ = stderr;
+
     var f: ?std.fs.File = null;
     defer if (f) |f_| f_.close();
+    var fw: ?std.fs.File.Writer = null;
 
     var root_prog_node = std.Progress.start(.{
         .root_name = "generate SBOM",
     });
 
-    const writer = if (args.path) |path| blk: {
+    var writer = if (args.path) |path| blk: {
         f = try misc.createFile(path, .{});
-        break :blk f.?.writer();
+        fw = f.?.writer(&.{});
+        break :blk &fw.?.interface;
     } else blk: {
-        break :blk std.io.getStdOut().writer();
+        break :blk stdout;
     };
 
-    const root, var map = try PackageInfo.fetch.fetchPackageDependencies(
+    const root, var map = try Fetch.fetchPackageDependencies(
         allocator,
         arena,
         root_prog_node,
@@ -91,14 +99,13 @@ pub fn cmdSbom(
         }
     }
 
+    const jstring = try std.json.Stringify.valueAlloc(allocator, sbom, .{
+        .whitespace = .indent_2,
+        .emit_null_optional_fields = false,
+    });
+    defer allocator.free(jstring);
+
     root_prog_node.end(); // this comes right before writing...
-    try std.json.stringify(
-        sbom,
-        .{
-            .whitespace = .indent_2,
-            .emit_null_optional_fields = false,
-        },
-        writer,
-    );
+    try writer.writeAll(jstring);
     _ = try writer.write("\n");
 }

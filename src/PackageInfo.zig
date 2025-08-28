@@ -1,90 +1,29 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Advisory = @import("advisory").Advisory;
+pub const Package = @import("PackageInfo/Package.zig");
 
-pub const fetch = @import("PackageInfo/fetch.zig");
-pub const graph = @import("PackageInfo/src_graph.zig");
-
-pub const Components = @import("cmd/inspect_build/injected.zig").zat.Components;
+const Components = @import("root.zig").InspectBuild.injected.zat.Components;
 
 pub const PackageInfo = @This();
 
 /// Maps form `<fingerprint>@<version>` to a package info.
-pub const PackageInfoMap = std.hash_map.StringHashMap(PackageInfo);
+pub const Map = std.hash_map.StringHashMap(PackageInfo);
 
 name: []const u8,
 hash: []const u8,
 url: []const u8,
 fingerprint: u64,
 version: std.SemanticVersion,
-/// Child references via ref-tuple.
-children: std.ArrayList([]const u8),
-ref: []const u8,
 sversion: []const u8,
+ref: []const u8,
+/// Child references via ref-tuple.
+children: std.ArrayListUnmanaged([]const u8),
 /// The detected components of a package.
+/// Components can be executables, packages, libraries, resources, etc.
 components: ?Components = null,
-/// The modules actually used by a component.
-/// The used_modules map to the components by name.
-used_modules: std.ArrayList(UsedModules),
 
-pub const UsedModules = struct {
-    name: []const u8,
-    /// Modules detected via a static analysis of the AST of the given package.
-    modules: ?graph.Modules = null,
-
-    pub const AffectedFunctionResult = struct {
-        file_name: []const u8,
-        function: []const u8,
-    };
-
-    pub fn deinit(self: *const @This(), allocator: Allocator) void {
-        allocator.free(self.name);
-        if (self.modules) |mods| mods.deinit();
-    }
-
-    pub fn affectedFunctionUsed(
-        self: *const @This(),
-        module_name: []const u8,
-        functions: []const []const u8,
-    ) ?AffectedFunctionResult {
-        if (self.modules) |modules| {
-            for (modules.mods.items) |mod| {
-                if (std.mem.eql(u8, module_name, mod.name)) {
-                    for (mod.containers.items) |cont| {
-                        for (functions) |function| {
-                            // TODO: this is a very naive approach. Two things to improve:
-                            // - the static analysis when searching for module usages
-                            // - the comparison
-                            var i: usize = 0;
-                            while (i + 1 < function.len and function[i] != '.') i += 1;
-                            // We strip the module name from the access path as the user
-                            // might have bound the module to a variable with a different
-                            // name.
-                            const f_stripped = function[i..];
-
-                            for (cont.accesses.items) |access| {
-                                std.debug.print("comparing '{s}' and '{s}'\n", .{ access, f_stripped });
-                                if (std.mem.endsWith(u8, access, f_stripped)) {
-                                    // TODO: there might be multiple usages but we only
-                                    // report the first one found. This has to be improved
-                                    // in the future.
-                                    return .{
-                                        .file_name = cont.name,
-                                        .function = function,
-                                    };
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return null;
-    }
-};
-
+/// Determine if `ref` is a child of the given package.
 pub fn isChild(self: *const @This(), ref: []const u8) bool {
     for (self.children.items) |child| {
         if (std.mem.eql(u8, child, ref)) return true;
@@ -121,7 +60,7 @@ pub fn allocVersion(version: std.SemanticVersion, allocator: Allocator) ![]const
     );
 }
 
-pub fn print(self: *const @This(), writer: anytype) !void {
+pub fn print(self: *const @This(), writer: *std.Io.Writer) !void {
     try writer.print(
         "{s}:\n  hash: {s}\n  url: {s}\n  fingerprint: {x}\n  version: {d}.{d}.{d}{s}{s}{s}{s}\n  dependencies:\n",
         .{
@@ -143,6 +82,18 @@ pub fn print(self: *const @This(), writer: anytype) !void {
     }
 }
 
+pub fn printMermaid(self: *const @This(), writer: *std.Io.Writer) !void {
+    try writer.print(
+        "{x}[\"`<a href='{s}'>{s}</a>\n{s}`\"]\n",
+        .{
+            &self.sha256HashFromRef(),
+            self.url,
+            self.name,
+            self.sversion,
+        },
+    );
+}
+
 pub fn sha256HashFromRef(self: *const @This()) [std.crypto.hash.sha2.Sha256.digest_length]u8 {
     return hashFromRef(self.ref);
 }
@@ -153,53 +104,38 @@ pub fn hashFromRef(r: []const u8) [std.crypto.hash.sha2.Sha256.digest_length]u8 
     return ref;
 }
 
-pub fn printMermaid(self: *const @This(), writer: anytype) !void {
-    try writer.print(
-        "{x}[\"`<a href='{s}'>{s}</a>\n{s}`\"]\n",
-        .{
-            std.fmt.fmtSliceHexLower(&self.sha256HashFromRef()),
-            self.url,
-            self.name,
-            self.sversion,
-        },
-    );
-}
-
-pub fn deinit(self: *const @This(), allocator: Allocator) void {
+pub fn deinit(self: *@This(), allocator: Allocator) void {
     allocator.free(self.name);
     allocator.free(self.hash);
     allocator.free(self.url);
     for (self.children.items) |child| allocator.free(child);
-    self.children.deinit();
+    self.children.deinit(allocator);
     allocator.free(self.ref);
     allocator.free(self.sversion);
     if (self.components) |comps| comps.deinit(allocator);
-    for (self.used_modules.items) |comp| comp.deinit(allocator);
-    self.used_modules.deinit();
 }
 
 pub fn makeDepTreeStr(
     fp_key: []const u8,
-    map: *const PackageInfo.PackageInfoMap,
-    advisory: *const Advisory,
+    map: *const PackageInfo.Map,
     allocator: Allocator,
 ) ![]const u8 {
-    var visited = std.ArrayList([]const u8).init(allocator);
+    var visited: std.ArrayListUnmanaged([]const u8) = .{};
     defer {
         for (visited.items) |item| allocator.free(item);
-        visited.deinit();
+        visited.deinit(allocator);
     }
 
-    var chain = std.ArrayList([]const u8).init(allocator);
+    var chain: std.ArrayListUnmanaged([]const u8) = .{};
     defer {
         for (chain.items) |item| allocator.free(item);
-        chain.deinit();
+        chain.deinit(allocator);
     }
 
     var node = map.get(fp_key).?;
 
     // this is the leaf
-    try chain.append(try std.fmt.allocPrint(
+    try chain.append(allocator, try std.fmt.allocPrint(
         allocator,
         "{s} {s}",
         .{
@@ -207,7 +143,7 @@ pub fn makeDepTreeStr(
             node.sversion,
         },
     ));
-    try visited.append(try allocator.dupe(u8, node.ref));
+    try visited.append(allocator, try allocator.dupe(u8, node.ref));
 
     loop: while (true) {
         var ci = map.valueIterator();
@@ -226,42 +162,17 @@ pub fn makeDepTreeStr(
                 } else if (std.mem.eql(u8, child, node.ref)) {
                     // Check if the parent has used one of the vulnerable functions
                     // if present.
-                    var used_str: ?[]const u8 = null;
-                    defer if (used_str) |str| allocator.free(str);
-                    if (std.mem.eql(u8, child, fp_key)) outer: {
-                        //std.debug.print("direct child\n", .{});
-                        if (advisory.affected) |affected| {
-                            //std.debug.print("affected\n", .{});
-                            if (affected.functions) |functions| {
-                                //std.debug.print("functions\n", .{});
-                                for (item.used_modules.items) |comp| {
-                                    //std.debug.print("{s}\n", .{comp.name});
-                                    if (comp.affectedFunctionUsed(advisory.package, functions)) |used| {
-                                        used_str = try std.fmt.allocPrint(
-                                            allocator,
-                                            "[warning: function '{s}' used in '{s}']",
-                                            .{
-                                                used.function,
-                                                used.file_name,
-                                            },
-                                        );
-                                        break :outer;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // TODO
 
-                    try chain.append(try std.fmt.allocPrint(
+                    try chain.append(allocator, try std.fmt.allocPrint(
                         allocator,
-                        "{s} {s} {s}",
+                        "{s} {s}",
                         .{
                             item.name,
                             item.sversion,
-                            if (used_str) |str| str else "",
                         },
                     ));
-                    try visited.append(try allocator.dupe(u8, item.ref));
+                    try visited.append(allocator, try allocator.dupe(u8, item.ref));
 
                     node = map.get(item.ref).?;
                     continue :loop;
@@ -272,23 +183,19 @@ pub fn makeDepTreeStr(
         break;
     }
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.Io.Writer.Allocating.init(allocator);
     errdefer result.deinit();
     var offset: usize = 0;
     while (true) {
         const n = chain.pop();
         if (n == null) break;
 
-        for (0..offset) |_| try result.append(' ');
-        if (offset > 0) try result.appendSlice("└──");
-        try result.writer().print("{s}\n", .{n.?});
+        for (0..offset) |_| try result.writer.writeByte(' ');
+        if (offset > 0) try result.writer.writeAll("└──");
+        try result.writer.print("{s}\n", .{n.?});
 
         offset += 2;
     }
 
     return try result.toOwnedSlice();
-}
-
-test {
-    _ = fetch;
 }

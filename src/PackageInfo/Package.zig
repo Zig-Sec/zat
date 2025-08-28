@@ -1,11 +1,10 @@
-//! copied from: https://github.com/ziglang/zig/blob/master/src/Package.zig
-
 const std = @import("std");
 const assert = std.debug.assert;
 
+//pub const Module = @import("Package/Module.zig");
+pub const Fetch = @import("Package/Fetch.zig");
 pub const build_zig_basename = "build.zig";
 pub const Manifest = @import("Package/Manifest.zig");
-pub const Fetch = @import("Package/Fetch.zig");
 
 pub const multihash_len = 1 + 1 + Hash.Algo.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
@@ -67,10 +66,11 @@ pub const Hash = struct {
 
     pub fn toSlice(ph: *const Hash) []const u8 {
         var end: usize = ph.bytes.len;
-        while (true) {
+        while (end > 0) {
             end -= 1;
             if (ph.bytes[end] != 0) return ph.bytes[0 .. end + 1];
         }
+        return ph.bytes[0..0];
     }
 
     pub fn eql(a: *const Hash, b: *const Hash) bool {
@@ -134,7 +134,7 @@ pub const Hash = struct {
         }
         var bin_digest: [Algo.digest_length]u8 = undefined;
         Algo.hash(sub_path, &bin_digest, .{});
-        _ = std.fmt.bufPrint(result.bytes[i..], "{}", .{std.fmt.fmtSliceHexLower(&bin_digest)}) catch unreachable;
+        _ = std.fmt.bufPrint(result.bytes[i..], "{x}", .{&bin_digest}) catch unreachable;
         return result;
     }
 };
@@ -194,4 +194,13 @@ test Hash {
     };
     const result: Hash = .init(example_digest, "nasm", "2.16.1-3", 0xcafebabe, 10 * 1024 * 1024);
     try std.testing.expectEqualStrings("nasm-2.16.1-3-vrr-ygAAoADH9XG3tOdvPNuHen_d-XeHndOG-nNXmved", result.toSlice());
+}
+
+test "empty hash" {
+    const hash = Hash.fromSlice("");
+    try std.testing.expectEqualStrings("", hash.toSlice());
+}
+
+test {
+    _ = Fetch;
 }
