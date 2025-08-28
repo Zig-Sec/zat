@@ -174,6 +174,9 @@ pub fn componentFromPackageInfo(
             }
 
             try components.append(allocator, component);
+
+            // This component is provided by the package.
+            try dependency.addProvision(bom_ref, allocator);
         }
     }
 

@@ -25,6 +25,15 @@ pub fn addDependency(self: *@This(), ref: []const u8, allocator: Allocator) !voi
     self.dependsOn.?[self.dependsOn.?.len - 1] = try allocator.dupe(u8, ref);
 }
 
+pub fn addProvision(self: *@This(), ref: []const u8, allocator: Allocator) !void {
+    self.provides = if (self.provides == null)
+        try allocator.alloc([]const u8, 1)
+    else
+        try allocator.realloc(self.provides.?, self.provides.?.len + 1);
+
+    self.provides.?[self.provides.?.len - 1] = try allocator.dupe(u8, ref);
+}
+
 pub fn deinit(self: *const @This(), allocator: Allocator) void {
     allocator.free(self.ref);
     if (self.dependsOn) |do| {
