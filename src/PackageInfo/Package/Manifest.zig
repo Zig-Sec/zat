@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const testing = std.testing;
 const Package = @import("../Package.zig");
+const spdx = @import("../../spdx.zig");
 
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
@@ -35,6 +36,14 @@ pub const ErrorMessage = struct {
     off: u32,
 };
 
+pub const License = struct {
+    expression: spdx.License.Tree,
+    expression_tok: Ast.TokenIndex,
+    expression_node: Ast.Node.Index,
+    paths: std.StringArrayHashMapUnmanaged(void),
+    name_tok: Ast.TokenIndex,
+};
+
 name: []const u8,
 id: u32,
 version: std.SemanticVersion,
@@ -43,6 +52,11 @@ dependencies: std.StringArrayHashMapUnmanaged(Dependency),
 dependencies_node: Ast.Node.OptionalIndex,
 paths: std.StringArrayHashMapUnmanaged(void),
 minimum_zig_version: ?std.SemanticVersion,
+// TODO: Begin additional fields (ProposaL)
+// https://github.com/ziglang/zig/issues/23816
+/// A valid [SPDX license expression]().
+licenses: std.ArrayListUnmanaged(License),
+licenses_node: Ast.Node.OptionalIndex,
 
 errors: []ErrorMessage,
 arena_state: std.heap.ArenaAllocator.State,
@@ -81,11 +95,14 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .allow_missing_fingerprint = options.allow_missing_fingerprint,
         .minimum_zig_version = null,
         .buf = .{},
+        .licenses = .{},
+        .licenses_node = .none,
     };
     defer p.buf.deinit(gpa);
     defer p.errors.deinit(gpa);
     defer p.dependencies.deinit(gpa);
     defer p.paths.deinit(gpa);
+    defer p.licenses.deinit(gpa);
 
     p.parseRoot(main_node_index) catch |err| switch (err) {
         error.ParseFailure => assert(p.errors.items.len > 0),
@@ -103,6 +120,8 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .minimum_zig_version = p.minimum_zig_version,
         .errors = try p.arena.dupe(ErrorMessage, p.errors.items),
         .arena_state = arena_instance.state,
+        .licenses = try p.licenses.clone(p.arena),
+        .licenses_node = p.licenses_node,
     };
 }
 
@@ -154,6 +173,10 @@ const Parse = struct {
     allow_name_string: bool,
     allow_missing_fingerprint: bool,
     minimum_zig_version: ?std.SemanticVersion,
+    // TODO: proposed fields START
+    licenses: std.ArrayListUnmanaged(License),
+    licenses_node: Ast.Node.OptionalIndex,
+    // TODO: proposed fields END
 
     const InnerError = error{ ParseFailure, OutOfMemory };
 
@@ -205,6 +228,9 @@ const Parse = struct {
                     try appendError(p, ast.nodeMainToken(field_init), "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v null;
                 };
+            } else if (mem.eql(u8, field_name, "licenses")) {
+                p.licenses_node = field_init.toOptional();
+                try parseLicenses(p, field_init);
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
@@ -240,6 +266,79 @@ const Parse = struct {
             } else {
                 try appendError(p, main_token, "missing top-level 'paths' field", .{});
             }
+        }
+    }
+
+    // TODO: licenses field proposed but not implemented by the Zig compiler
+    fn parseLicenses(p: *Parse, node: Ast.Node.Index) !void {
+        const ast = p.ast;
+
+        var buf: [2]Ast.Node.Index = undefined;
+        const array_init = ast.fullArrayInit(&buf, node) orelse {
+            const tok = ast.nodeMainToken(node);
+            return fail(p, tok, "expected licenses expression to be a list of license structs", .{});
+        };
+
+        for (array_init.ast.elements) |elem_node| {
+            const license = try parseLicense(p, elem_node);
+            try p.licenses.append(p.gpa, license);
+        }
+    }
+
+    fn parseLicense(p: *Parse, node: Ast.Node.Index) !License {
+        const ast = p.ast;
+
+        var buf: [2]Ast.Node.Index = undefined;
+        const struct_init = ast.fullStructInit(&buf, node) orelse {
+            const tok = ast.nodeMainToken(node);
+            return fail(p, tok, "expected license expression to be a struct", .{});
+        };
+
+        var license: License = .{
+            .expression = undefined,
+            .expression_tok = 0,
+            .expression_node = .root,
+            .paths = .{},
+            .name_tok = 0,
+        };
+
+        for (struct_init.ast.fields) |field_init| {
+            const name_token = ast.firstToken(field_init) - 2;
+            license.name_tok = name_token;
+            const field_name = try identifierTokenString(p, name_token);
+
+            if (mem.eql(u8, field_name, "expression")) {
+                const exp_str = parseString(p, field_init) catch {
+                    return fail(p, name_token, "expected license expression to be a string", .{});
+                };
+                license.expression = spdx.License.Tree.new(p.gpa, exp_str) catch {
+                    return fail(p, name_token, "license expression `{s}` has an invalid format", .{exp_str});
+                };
+                license.expression_tok = ast.nodeMainToken(field_init);
+                license.expression_node = field_init;
+            } else if (mem.eql(u8, field_name, "paths")) {
+                try parseLicensePaths(p, field_init, &license.paths);
+            }
+        }
+
+        return license;
+    }
+
+    fn parseLicensePaths(p: *Parse, node: Ast.Node.Index, paths: *std.StringArrayHashMapUnmanaged(void)) !void {
+        const ast = p.ast;
+
+        var buf: [2]Ast.Node.Index = undefined;
+        const array_init = ast.fullArrayInit(&buf, node) orelse {
+            const tok = ast.nodeMainToken(node);
+            return fail(p, tok, "expected paths expression to be a list of strings", .{});
+        };
+
+        for (array_init.ast.elements) |elem_node| {
+            const path_string = try parseString(p, elem_node);
+            // This is normalized so that it can be used in string comparisons
+            // against file system paths.
+            const normalized = try std.fs.path.resolve(p.arena, &.{path_string});
+            try paths.put(p.gpa, normalized, {});
         }
     }
 
