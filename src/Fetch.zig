@@ -57,7 +57,10 @@ pub fn fetchPackageDependencies(
 
     var deps_iter = manifest.dependencies.iterator();
     while (deps_iter.next()) |dep| {
-        try dependencies.append(allocator, dep.value_ptr.location.url);
+        switch (dep.value_ptr.location) {
+            .url => try dependencies.append(allocator, dep.value_ptr.location.url),
+            .path => {}, // TODO
+        }
     }
 
     // +++++++++++++++++++++++++++++++++++++++
