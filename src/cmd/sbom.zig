@@ -76,7 +76,7 @@ pub fn cmdSbom(
         const t = time.DateTime.now();
 
         sbom.metadata = .{
-            .timestamp = try t.formatAlloc(allocator, "YYYY-MM-DDTHH:mm:ss"),
+            .timestamp = try t.formatAlloc(allocator, "YYYY-MM-DDTHH:mm:ssz"),
             .tools = .{
                 .components = tools,
             },
