@@ -70,6 +70,8 @@ The following tools can be used to play with generated SBOMs:
 
 Zat helps you with submitting dependencies for your projects on Github.
 
+![Github dependency for Zig-Sec/kdbx](static/github-dep.png)
+
 > Please note that publishing dependencies on Github isn't of much use yet
 > as Github won't cross reference dependencies published via the API. That
 > means for example that packages won't show up within the dependents list 
