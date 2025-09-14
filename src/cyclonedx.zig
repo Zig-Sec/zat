@@ -148,7 +148,7 @@ pub fn componentFromPackageInfo(
                 .executable => "exe",
             };
 
-            const bom_ref = try std.fmt.allocPrint(allocator, "{s}:{s}{s}{s}", .{ prefix, comp.name, if (comp.version) |_| "@" else "", if (comp.version) |v| v else "" });
+            const bom_ref = try std.fmt.allocPrint(allocator, "{s}:{s}:{s}{s}{s}", .{ pi.ref, prefix, comp.name, if (comp.version) |_| "@" else "", if (comp.version) |v| v else "" });
             errdefer allocator.free(bom_ref);
 
             const n = try allocator.dupe(u8, comp.name);
