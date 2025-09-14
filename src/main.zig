@@ -37,6 +37,12 @@ pub fn main() !void {
         \\--path <str>             Define a path
         \\--sbom                   Generate a SBOM for a package
         \\--cyclonedx-json         Create a CycloneDX SBOM using the Json format
+        \\--github-dependency      Create a json object for the Github dependency API
+        \\--correlator <str>       A correlator for the github job
+        \\--jobid <str>            A id for the github job
+        \\--sha <str>              The commit sha
+        \\--ref <str>              The repository branch that triggered the snapshot
+        \\--minify                 Minify the output
         \\
     );
 
@@ -72,6 +78,14 @@ pub fn main() !void {
         );
     } else if (res.args.@"inspect-build" != 0) {
         //try root.cmd.inspect_build.cmdIntrospect(allocator, arena, res.args);
+    } else if (res.args.@"github-dependency" != 0) {
+        try root.cmd.github_dependency.cmdSbom(
+            allocator,
+            arena,
+            res.args,
+            stdout,
+            stderr,
+        );
     } else {
         try stdout.print(help_text, .{});
         return;
@@ -98,6 +112,7 @@ const help_text =
     \\ --audit                                     Audit the given package
     \\ --sbom                                      Generate a SBOM for a package
     \\ --inspect-build                             Inspect the components of the build script
+    \\ --github-dependency                         Create a json object for the Github dependency API
     \\
     \\Options:
     \\ -y                                          Accept all
@@ -109,5 +124,11 @@ const help_text =
     \\SBOM Options
     \\ --cyclonedx-json                            Create a CycloneDX SBOM using the Json format (default)
     \\
+    \\Github Dependency API
+    \\ --correlator <str>                          A correlator to group snapshots (e.g. GITHUB_WORKFLOW ++ GITHUB_JOB)
+    \\ --jobid <str>                               The external id of the job
+    \\ --sha <str>                                 The commit sha (mandatory)
+    \\ --ref <str>                                 The repository branch that triggered the snapshot
+    \\ --minify                                    Minify the Json output
     \\
 ;

@@ -79,12 +79,16 @@ pub fn inspect(build_root: std.fs.Dir, allocator: Allocator) !injected.zat.Compo
 
 fn restoreBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
     const backup = try root_dir.openFile("build.zig.zat", .{});
+    defer backup.close();
     const bz = try root_dir.createFile("build.zig", .{ .truncate = true });
+    defer bz.close();
 
     const content = try backup.readToEndAlloc(allocator, 50_000_000);
     defer allocator.free(content);
 
     try bz.writeAll(content);
+
+    root_dir.deleteFile("build.zig.zat") catch {};
 }
 
 fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {

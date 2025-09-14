@@ -42,6 +42,25 @@ pub fn cmdSbom(
         break :blk stdout;
     };
 
+    const sbom = try createSbom(allocator, arena, root_prog_node);
+    defer sbom.deinit(allocator);
+
+    const jstring = try std.json.Stringify.valueAlloc(allocator, sbom, .{
+        .whitespace = .indent_2,
+        .emit_null_optional_fields = false,
+    });
+    defer allocator.free(jstring);
+
+    root_prog_node.end(); // this comes right before writing...
+    try writer.writeAll(jstring);
+    _ = try writer.write("\n");
+}
+
+pub fn createSbom(
+    allocator: Allocator,
+    arena: Allocator,
+    root_prog_node: std.Progress.Node,
+) !cyclonedx.SBOM {
     const root, var map = try Fetch.fetchPackageDependencies(
         allocator,
         arena,
@@ -56,7 +75,7 @@ pub fn cmdSbom(
     var sbom = cyclonedx.SBOM.new(allocator) catch |err| {
         fatal("unable to create SBOM ({any})", .{err});
     };
-    defer sbom.deinit(allocator);
+    errdefer sbom.deinit(allocator);
 
     // meta
     {
@@ -99,13 +118,5 @@ pub fn cmdSbom(
         }
     }
 
-    const jstring = try std.json.Stringify.valueAlloc(allocator, sbom, .{
-        .whitespace = .indent_2,
-        .emit_null_optional_fields = false,
-    });
-    defer allocator.free(jstring);
-
-    root_prog_node.end(); // this comes right before writing...
-    try writer.writeAll(jstring);
-    _ = try writer.write("\n");
+    return sbom;
 }
