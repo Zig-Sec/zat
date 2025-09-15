@@ -16,6 +16,8 @@ pub fn inspect(build_root: std.fs.Dir, allocator: Allocator) !injected.zat.Compo
         .argv = &.{
             "zig",
             "build",
+            "--build-file",
+            "build.zat.zig",
             "-h", // this way build zig only generates the build graph...
         },
     }) catch |e| {
@@ -78,31 +80,21 @@ pub fn inspect(build_root: std.fs.Dir, allocator: Allocator) !injected.zat.Compo
 }
 
 fn restoreBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
-    const backup = try root_dir.openFile("build.zig.zat", .{});
-    defer backup.close();
-    const bz = try root_dir.createFile("build.zig", .{ .truncate = true });
-    defer bz.close();
-
-    const content = try backup.readToEndAlloc(allocator, 50_000_000);
-    defer allocator.free(content);
-
-    try bz.writeAll(content);
-
-    root_dir.deleteFile("build.zig.zat") catch {};
+    _ = allocator;
+    root_dir.deleteFile("build.zat.zig") catch {};
 }
 
 fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
     const fbuild_zig = try root_dir.openFile("build.zig", .{
         .mode = .read_write,
     });
-    defer fbuild_zig.close();
 
     const content = try fbuild_zig.readToEndAlloc(allocator, 50_000_000);
     defer allocator.free(content);
+    fbuild_zig.close();
 
     // Duplicate
-    const backup = try root_dir.createFile("build.zig.zat", .{});
-    try backup.writeAll(content);
+    const backup = try root_dir.createFile("build.zat.zig", .{});
 
     // Modify
     const modified = try std.mem.replaceOwned(u8, allocator, content, "fn build(", "fn buil_(");
@@ -128,8 +120,7 @@ fn readAndModifyBuildZig(root_dir: fs.Dir, allocator: Allocator) !void {
     ;
 
     // TODO: check zig version and adjust modifications
-    try fbuild_zig.seekTo(0);
-    var w = fbuild_zig.writer(&.{});
+    var w = backup.writer(&.{});
     try w.interface.print(
         \\{s}
         \\
