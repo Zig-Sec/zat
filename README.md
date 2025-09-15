@@ -61,6 +61,13 @@ $ zat --sbom
 
 To write the SBOM directly to a file use the `--path <PATH>` option.
 
+If you want to include additional information about the components specified
+within the `build.zig` in your SBOM use the `--components` option.
+
+> `--components` requires a Zig compiler in your system path and will invoke
+> the compiler with a modified `build.zig` that parses the build graph and
+> then outputs the relevant information as Json.
+
 #### Open Source SBOM tools
 
 The following tools can be used to play with generated SBOMs:

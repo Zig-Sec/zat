@@ -20,6 +20,7 @@ pub fn fetchPackageDependencies(
     allocator: Allocator,
     arena: Allocator,
     node: std.Progress.Node,
+    inspect: bool,
 ) !struct { PackageInfo, DepMap } {
     const color: Color = .auto;
 
@@ -85,22 +86,24 @@ pub fn fetchPackageDependencies(
     };
     errdefer root_package.deinit(allocator);
 
-    // Try to inspect the build graph to get more detailed infromation
-    // about the given package.
-    var inspect_build_node = fetch_node.start("inspecting build", 0);
-    outer: {
-        root_package.components = InspectBuild.inspect(build_root.directory.handle, allocator) catch |e| {
-            std.log.err(
-                "inspecting the `build.zig` of package `{s}` failed.\nReason: {any}",
-                .{
-                    manifest.name,
-                    e,
-                },
-            );
-            break :outer;
-        };
+    if (inspect) {
+        // Try to inspect the build graph to get more detailed infromation
+        // about the given package.
+        var inspect_build_node = fetch_node.start("inspecting build", 0);
+        outer: {
+            root_package.components = InspectBuild.inspect(build_root.directory.handle, allocator) catch |e| {
+                std.log.err(
+                    "inspecting the `build.zig` of package `{s}` failed.\nReason: {any}",
+                    .{
+                        manifest.name,
+                        e,
+                    },
+                );
+                break :outer;
+            };
+        }
+        inspect_build_node.end();
     }
-    inspect_build_node.end();
 
     // +++++++++++++++++++++++++++++++++++++++
     // Infos about its dependencies

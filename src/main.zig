@@ -43,6 +43,8 @@ pub fn main() !void {
         \\--sha <str>              The commit sha
         \\--ref <str>              The repository branch that triggered the snapshot
         \\--minify                 Minify the output
+        \\--scan                   Scan the given package
+        \\--components             Also scan for components
         \\
     );
 
@@ -86,6 +88,14 @@ pub fn main() !void {
             stdout,
             stderr,
         );
+    } else if (res.args.scan != 0) {
+        try root.cmd.scan.cmdScan(
+            allocator,
+            arena,
+            res.args,
+            stdout,
+            stderr,
+        );
     } else {
         try stdout.print(help_text, .{});
         return;
@@ -113,9 +123,11 @@ const help_text =
     \\ --sbom                                      Generate a SBOM for a package
     \\ --inspect-build                             Inspect the components of the build script
     \\ --github-dependency                         Create a json object for the Github dependency API
+    \\ --scan                                      Scan the given package
     \\
     \\Options:
     \\ -y                                          Accept all
+    \\ --components                                Scan for package components.
     \\
     \\Graph Options
     \\ --mermaid                                   Create a mermaid graph (supported by Github READMEs)

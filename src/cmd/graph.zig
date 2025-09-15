@@ -40,6 +40,7 @@ pub fn cmdGraph(
         allocator,
         arena,
         root_prog_node,
+        false,
     );
     defer {
         var iter = map.iterator();

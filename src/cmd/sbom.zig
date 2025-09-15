@@ -42,7 +42,12 @@ pub fn cmdSbom(
         break :blk stdout;
     };
 
-    const sbom = try createSbom(allocator, arena, root_prog_node);
+    const sbom = try createSbom(
+        allocator,
+        arena,
+        root_prog_node,
+        if (args.components != 0) true else false,
+    );
     defer sbom.deinit(allocator);
 
     const jstring = try std.json.Stringify.valueAlloc(allocator, sbom, .{
@@ -60,11 +65,13 @@ pub fn createSbom(
     allocator: Allocator,
     arena: Allocator,
     root_prog_node: std.Progress.Node,
+    inspect: bool,
 ) !cyclonedx.SBOM {
     const root, var map = try Fetch.fetchPackageDependencies(
         allocator,
         arena,
         root_prog_node,
+        inspect,
     );
     defer {
         var iter = map.iterator();

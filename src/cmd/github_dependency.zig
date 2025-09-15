@@ -27,7 +27,12 @@ pub fn cmdSbom(
         .root_name = "generate Github dependency submission",
     });
 
-    const bom = try sbom.createSbom(allocator, arena, root_prog_node);
+    const bom = try sbom.createSbom(
+        allocator,
+        arena,
+        root_prog_node,
+        false,
+    );
     defer bom.deinit(allocator);
 
     var raw = std.Io.Writer.Allocating.init(allocator);
